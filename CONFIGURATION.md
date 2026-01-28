@@ -4,19 +4,44 @@ All configuration options are in `system/config.py`. This guide explains each se
 
 ---
 
-## Git LFS (Large File Storage)
+## Lumerical Template Files
 
-This repository uses Git LFS to store large Lumerical simulation template files. You must have Git LFS installed to properly clone and work with this repository.
+This repository includes large Lumerical simulation template files required for running simulations:
 
-### Why Git LFS?
+| File | Size | Description |
+|------|------|-------------|
+| `PIN_Ref_paper_Charge.ldev` | 347 MB | CHARGE simulation template |
+| `PIN_Ref_phase_shifter.lms` | 15 MB | FDE/MODE simulation template |
 
-Lumerical simulation files are large binary files:
-- `PIN_Ref_paper_Charge.ldev` - CHARGE template (~347 MB)
-- `PIN_Ref_phase_shifter.lms` - FDE/MODE template (~15 MB)
+These files are stored via Git LFS (Large File Storage) because GitHub has a 100 MB file size limit.
 
-GitHub has a 100 MB file size limit, so these files are stored via Git LFS.
+### Option 1: Download from GitHub Release (Recommended)
 
-### Installation
+The easiest method - **no Git LFS installation required**:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
+   cd PS_Opt_V2
+   ```
+
+2. Go to the **Releases** page:
+
+   https://github.com/ilaiyomsh/PS_Opt_V2/releases
+
+3. Download the two Lumerical files from the latest release
+
+4. Move the downloaded files to the `Lumerical_Files/` directory:
+   ```bash
+   mv ~/Downloads/PIN_Ref_paper_Charge.ldev Lumerical_Files/
+   mv ~/Downloads/PIN_Ref_phase_shifter.lms Lumerical_Files/
+   ```
+
+### Option 2: Clone with Git LFS
+
+If you prefer to use Git LFS, files download automatically during clone.
+
+#### Installing Git LFS
 
 ```bash
 # macOS
@@ -29,28 +54,23 @@ sudo apt install git-lfs
 # Download installer from https://git-lfs.github.com/
 ```
 
-### Setup (One-Time)
-
-After installing, initialize Git LFS:
+#### Setup and Clone
 
 ```bash
+# Initialize Git LFS (one-time)
 git lfs install
-```
 
-### Cloning the Repository
-
-```bash
+# Clone the repository (LFS files download automatically)
 git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
 cd PS_Opt_V2
 ```
 
-Git LFS automatically downloads the large files during clone. If you cloned before installing Git LFS, run:
-
+If you cloned before installing Git LFS, pull the files manually:
 ```bash
 git lfs pull
 ```
 
-### Verifying LFS Files
+### Verifying Files
 
 Check that Lumerical files are properly downloaded (not just pointers):
 
@@ -64,12 +84,11 @@ Expected output:
 -rw-r--r--   15M  PIN_Ref_phase_shifter.lms
 ```
 
-If files show as ~130 bytes, they are LFS pointers and need to be pulled:
-```bash
-git lfs pull
-```
+**Troubleshooting:** If files show as ~130 bytes, they are LFS pointers. Either:
+- Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases)
+- Or run `git lfs pull` (requires Git LFS installed)
 
-### LFS-Tracked Files
+### LFS Configuration
 
 The `.gitattributes` file defines which files are tracked by LFS:
 

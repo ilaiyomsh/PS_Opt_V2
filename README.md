@@ -103,38 +103,47 @@ The system minimizes two competing objectives:
 pip install -r requirements.txt
 ```
 
-### Git LFS
+### Lumerical Template Files
 
-This repository uses **Git Large File Storage (LFS)** to manage large Lumerical simulation files (`.ldev`, `.lms`). These files are essential for running simulations.
+The repository includes large Lumerical simulation template files stored via Git LFS. There are **two ways** to obtain these files:
 
-#### Installing Git LFS
+#### Option 1: Download from GitHub Release (Recommended)
+
+The easiest method - no Git LFS installation required:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
+   ```
+
+2. Go to the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases)
+
+3. Download the Lumerical files from the latest release:
+   - `PIN_Ref_paper_Charge.ldev` (347 MB)
+   - `PIN_Ref_phase_shifter.lms` (15 MB)
+
+4. Place the downloaded files in the `Lumerical_Files/` directory
+
+#### Option 2: Clone with Git LFS
+
+If you have Git LFS installed, files download automatically:
 
 ```bash
-# macOS
-brew install git-lfs
+# Install Git LFS (one-time)
+# macOS: brew install git-lfs
+# Ubuntu: sudo apt install git-lfs
+# Windows: https://git-lfs.github.com/
 
-# Ubuntu/Debian
-sudo apt install git-lfs
-
-# Windows
-# Download from https://git-lfs.github.com/
-```
-
-#### Cloning the Repository
-
-After installing Git LFS:
-
-```bash
-# Initialize Git LFS (one-time setup)
+# Initialize Git LFS
 git lfs install
 
-# Clone the repository (LFS files download automatically)
+# Clone (LFS files download automatically)
 git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
 ```
 
-#### Verifying LFS Files
+#### Verifying Lumerical Files
 
-After cloning, verify the Lumerical files were downloaded:
+After obtaining the files, verify they are correctly placed:
 
 ```bash
 ls -lh Lumerical_Files/
@@ -143,10 +152,9 @@ ls -lh Lumerical_Files/
 # PIN_Ref_phase_shifter.lms  (~15 MB)
 ```
 
-If files show as small text pointers (~130 bytes), run:
-```bash
-git lfs pull
-```
+If files show as small text pointers (~130 bytes), either:
+- Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases), or
+- Run `git lfs pull` (requires Git LFS)
 
 ---
 
