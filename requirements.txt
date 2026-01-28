@@ -1,0 +1,28 @@
+# PS_Opt_V2 - Python Dependencies
+# PIN Diode Phase Shifter Optimization System v2.0
+
+# Core Scientific Computing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Bayesian Optimization
+bayesian-optimization>=1.4.0
+
+# Data Processing and Analysis
+scikit-learn>=1.3.0
+
+# Optional: Plotting (uncomment if needed for visualization)
+# matplotlib>=3.7.0
+
+# Improved LHS Sampling
+smt>=2.0.0
+
+# Testing
+pytest>=7.0.0
+
+# Note: Lumerical lumapi module
+# lumapi is provided by Lumerical installation
+# Ensure Lumerical DEVICE and MODE are installed
+# Add Lumerical Python API path to system PATH or PYTHONPATH
+# Set LUMERICAL_API_PATH in config.py
