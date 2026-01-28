@@ -247,17 +247,13 @@ def main():
         print("[INFO] BO loop skipped by user.")
         return
 
-    # Determine starting sim_id for BO iterations
-    # Continue from the last sim_id in results (safe even if rows were deleted)
-    bo_sim_id = 1  # Default if no results exist
-    if os.path.exists(config.RESULTS_CSV_FILE):
-        try:
-            existing_results = pd.read_csv(config.RESULTS_CSV_FILE)
-            if 'sim_id' in existing_results.columns and len(existing_results) > 0:
-                bo_sim_id = int(existing_results['sim_id'].max()) + 1
-                log_raw(f"  Training GP on {len(existing_results)} data points...")
-        except Exception:
-            pass
+    # Determine starting sim_id for BO iterations using all results (current + archived)
+    bo_sim_id = results_archive.get_next_sim_id()
+
+    # Log how many data points will be used for training
+    all_results = results_archive.load_all_results_for_bo()
+    if len(all_results) > 0:
+        log_raw(f"  Training GP on {len(all_results)} data points (current + archived)...")
 
     iteration = 0
 

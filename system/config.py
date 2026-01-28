@@ -48,10 +48,10 @@ SHOW_PLOTS = False      # Display plots after extraction
 SKIP_LHS = False        # Skip LHS, use existing params.csv
 
 # --- Cooling Delay ---
-DELAY_BETWEEN_RUNS = 600  # seconds between runs (0 = no delay)
+DELAY_BETWEEN_RUNS = 0  # seconds between runs (0 = no delay)
 
 # --- LHS Parameters ---
-LHS_N_SAMPLES = 5  # Number of LHS samples
+LHS_N_SAMPLES = 1  # Number of LHS samples
 
 LHS_SAMPLING_METHOD = 'random'  # 'random', 'maximin', or 'optimum' (smt library)
 LHS_RANDOM_SEED = None          # None = random seed
@@ -77,8 +77,9 @@ DOPING_X_MIN = -5e-6  # source_nwell x_min (m)
 DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 
 # --- Bayesian Optimization ---
-MAX_ITERATIONS = 3    # BO iterations
+MAX_ITERATIONS = 1    # BO iterations
 BO_KAPPA = 2.0        # UCB kappa (low=exploit, high=explore)
+DUPLICATE_TOLERANCE = 0.01  # Relative tolerance for duplicate detection (1% = 0.01)
 
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}  # dB/cm, V*mm

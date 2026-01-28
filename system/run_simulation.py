@@ -11,6 +11,7 @@ import numpy as np
 import config
 import sim_handler
 import data_processor
+import results_archive
 
 # Add Lumerical API path to system path
 sys.path.append(config.LUMERICAL_API_PATH)
@@ -230,6 +231,52 @@ def run_init_file(params_csv_path=None, logger_func=None):
     return config.RESULTS_CSV_FILE
 
 
+def _is_duplicate_params(new_params, existing_df, tolerance=None):
+    """
+    Check if suggested parameters are too similar to existing results.
+
+    Args:
+        new_params (dict): Parameter values to check
+        existing_df (pd.DataFrame): DataFrame with existing results
+        tolerance (float): Relative tolerance for considering params as duplicate (default 1%)
+
+    Returns:
+        bool: True if duplicate found, False otherwise
+    """
+    if tolerance is None:
+        tolerance = config.DUPLICATE_TOLERANCE
+
+    if existing_df is None or len(existing_df) == 0:
+        return False
+
+    param_names = list(config.SWEEP_PARAMETERS.keys())
+
+    for _, row in existing_df.iterrows():
+        is_match = True
+        for param in param_names:
+            if param not in new_params or param not in row:
+                is_match = False
+                break
+
+            old_val = row[param]
+            new_val = new_params[param]
+
+            # Calculate relative difference
+            if old_val == 0:
+                rel_diff = abs(new_val)
+            else:
+                rel_diff = abs((new_val - old_val) / old_val)
+
+            if rel_diff > tolerance:
+                is_match = False
+                break
+
+        if is_match:
+            return True
+
+    return False
+
+
 def run_row(row, sim_id=None, is_last=False):
     """
     Runs a single simulation for a given parameter row and appends result to CSV.
@@ -272,11 +319,18 @@ def run_row(row, sim_id=None, is_last=False):
     # Get simulation ID
     if sim_id is None:
         sim_id = int(params.get('sim_id', 0))
-    
+
     print(f"\n{'='*50}")
     print(f"Running simulation {sim_id}")
     print(f"{'='*50}")
     print(f"Parameters: {params}")
+
+    # ========== Duplicate Detection ==========
+    # Check if these parameters are too similar to already-tested samples
+    existing_df = results_archive.load_all_results_for_bo()
+    if _is_duplicate_params(params, existing_df):
+        print(f"  [SKIP] Parameters are too similar to an existing result. Skipping simulation.")
+        return None
 
     # Track timing
     sim_start_time = time.time()

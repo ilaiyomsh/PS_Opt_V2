@@ -233,7 +233,7 @@ def train_optimizer(result_csv_path=None, use_archive=True):
     return optimizer
 
 
-def _is_duplicate_params(new_params, existing_df, tolerance=0.01):
+def _is_duplicate_params(new_params, existing_df, tolerance=None):
     """
     Check if suggested parameters are too similar to existing results.
 
@@ -245,6 +245,9 @@ def _is_duplicate_params(new_params, existing_df, tolerance=0.01):
     Returns:
         bool: True if duplicate found, False otherwise
     """
+    if tolerance is None:
+        tolerance = config.DUPLICATE_TOLERANCE
+
     if existing_df is None or len(existing_df) == 0:
         return False
 
@@ -303,13 +306,8 @@ def get_next_sample(optimizer, result_csv_path=None, max_retries=5):
     if result_csv_path is None:
         result_csv_path = config.RESULTS_CSV_FILE
 
-    # Load existing results for duplicate checking
-    existing_df = None
-    if os.path.exists(result_csv_path):
-        try:
-            existing_df = pd.read_csv(result_csv_path)
-        except:
-            pass
+    # Load ALL existing results (current + archived) for duplicate checking
+    existing_df = results_archive.load_all_results_for_bo()
 
     try:
         for retry in range(max_retries):
