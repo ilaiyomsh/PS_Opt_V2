@@ -4,6 +4,82 @@ All configuration options are in `system/config.py`. This guide explains each se
 
 ---
 
+## Git LFS (Large File Storage)
+
+This repository uses Git LFS to store large Lumerical simulation template files. You must have Git LFS installed to properly clone and work with this repository.
+
+### Why Git LFS?
+
+Lumerical simulation files are large binary files:
+- `PIN_Ref_paper_Charge.ldev` - CHARGE template (~347 MB)
+- `PIN_Ref_phase_shifter.lms` - FDE/MODE template (~15 MB)
+
+GitHub has a 100 MB file size limit, so these files are stored via Git LFS.
+
+### Installation
+
+```bash
+# macOS
+brew install git-lfs
+
+# Ubuntu/Debian
+sudo apt install git-lfs
+
+# Windows
+# Download installer from https://git-lfs.github.com/
+```
+
+### Setup (One-Time)
+
+After installing, initialize Git LFS:
+
+```bash
+git lfs install
+```
+
+### Cloning the Repository
+
+```bash
+git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
+cd PS_Opt_V2
+```
+
+Git LFS automatically downloads the large files during clone. If you cloned before installing Git LFS, run:
+
+```bash
+git lfs pull
+```
+
+### Verifying LFS Files
+
+Check that Lumerical files are properly downloaded (not just pointers):
+
+```bash
+ls -lh Lumerical_Files/*.ldev Lumerical_Files/*.lms
+```
+
+Expected output:
+```
+-rw-r--r--  347M  PIN_Ref_paper_Charge.ldev
+-rw-r--r--   15M  PIN_Ref_phase_shifter.lms
+```
+
+If files show as ~130 bytes, they are LFS pointers and need to be pulled:
+```bash
+git lfs pull
+```
+
+### LFS-Tracked Files
+
+The `.gitattributes` file defines which files are tracked by LFS:
+
+```
+*.ldev filter=lfs diff=lfs merge=lfs -text
+*.lms filter=lfs diff=lfs merge=lfs -text
+```
+
+---
+
 ## Lumerical API Path
 
 The most critical setting - must point to your Lumerical Python API installation.

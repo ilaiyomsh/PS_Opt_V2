@@ -96,10 +96,56 @@ The system minimizes two competing objectives:
 - Python 3.8+
 - Lumerical DEVICE (CHARGE solver)
 - Lumerical MODE (FDE solver)
+- Git LFS (for cloning Lumerical template files)
 
 ### Python Dependencies
 ```bash
 pip install -r requirements.txt
+```
+
+### Git LFS
+
+This repository uses **Git Large File Storage (LFS)** to manage large Lumerical simulation files (`.ldev`, `.lms`). These files are essential for running simulations.
+
+#### Installing Git LFS
+
+```bash
+# macOS
+brew install git-lfs
+
+# Ubuntu/Debian
+sudo apt install git-lfs
+
+# Windows
+# Download from https://git-lfs.github.com/
+```
+
+#### Cloning the Repository
+
+After installing Git LFS:
+
+```bash
+# Initialize Git LFS (one-time setup)
+git lfs install
+
+# Clone the repository (LFS files download automatically)
+git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
+```
+
+#### Verifying LFS Files
+
+After cloning, verify the Lumerical files were downloaded:
+
+```bash
+ls -lh Lumerical_Files/
+# Should show:
+# PIN_Ref_paper_Charge.ldev  (~347 MB)
+# PIN_Ref_phase_shifter.lms  (~15 MB)
+```
+
+If files show as small text pointers (~130 bytes), run:
+```bash
+git lfs pull
 ```
 
 ---
@@ -150,7 +196,7 @@ PS_Opt_V2/
 │   ├── data_processor.py     # Data extraction & processing
 │   └── results_archive.py    # Results archiving utilities
 │
-├── Lumerical_Files/          # Simulation templates (not tracked)
+├── Lumerical_Files/          # Simulation templates (tracked via Git LFS)
 ├── simulation csv/           # Input/output CSV files
 │   ├── params.csv            # Generated parameters
 │   ├── result.csv            # Minimal results (12 columns)
