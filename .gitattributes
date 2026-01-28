@@ -1,0 +1,2 @@
+*.ldev filter=lfs diff=lfs merge=lfs -text
+*.lms filter=lfs diff=lfs merge=lfs -text
