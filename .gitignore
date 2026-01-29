@@ -134,7 +134,7 @@ lomapi_python/
 logs/
 
 # Results archive (user-specific data)
-results_archive/*
+
 !results_archive/.gitkeep
 
 # PDF exports
