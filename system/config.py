@@ -39,6 +39,7 @@ MINIMAL_RESULT_COLUMNS = [
 # Results archive
 RESULTS_ARCHIVE_DIR = os.path.join(_BASE_DIR, "results_archive")
 AUTO_ARCHIVE_RESULTS = True
+USE_ARCHIVE = True  # Use archived results for BO training
 
 # --- Simulation Control Flags ---
 RUN_SIMULATION = True   # Run simulations (False = use existing data)

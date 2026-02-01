@@ -270,7 +270,7 @@ def main():
         try:
             # 3a. Train Bayesian Optimizer with current results
             print("Training optimizer with existing results...")
-            optimizer = BO.train_optimizer(result_csv_path=config.RESULTS_CSV_FILE)
+            optimizer = BO.train_optimizer(result_csv_path=config.RESULTS_CSV_FILE, use_archive=config.USE_ARCHIVE)
 
             # 3b. Get next parameter set from optimizer
             print("Predicting next parameter set...")
