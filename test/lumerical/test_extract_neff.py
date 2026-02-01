@@ -5,16 +5,23 @@
 import sys
 import os
 
-# Add Lumerical API to path
-sys.path.append("C:\\Program Files\\Lumerical\\v231\\api\\python")
+# Get project root (PS_Opt_V2) - go up 2 levels from this file
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
 
-import numpy as np
-import pandas as pd
+# Add system directory to path for local imports
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, "system"))
 
-# Import local modules
+# Import local modules (now that system is in path)
 import config
 import sim_handler
 import data_processor
+
+# Add Lumerical API to path (from config)
+sys.path.append(config.LUMERICAL_API_PATH)
+
+import numpy as np
+import pandas as pd
 
 try:
     import lumapi
@@ -150,6 +157,8 @@ def main():
         sweep_result = fde.getsweepresult("voltage", "neff")
         print(f"     sweep_result type: {type(sweep_result)}")
         print(f"     sweep_result keys: {list(sweep_result.keys())}")
+        print(f"     sweep_result['neff'].shape: {sweep_result['neff'].shape}")                                                                              
+        print(f"     sweep_result['neff'].ndim: {sweep_result['neff'].ndim}")  # Number of dimensions  
     except Exception as e:
         print(f"     [ERROR] Failed to get sweep result: {e}")
         fde.close()
