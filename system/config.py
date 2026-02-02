@@ -27,6 +27,7 @@ PARAMS_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "params.csv")
 RESULTS_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "result.csv")  # Minimal results CSV
 RESULTS_FULL_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "result_full.csv")  # Full results CSV
 ERRORS_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "errors.csv")  # Errors CSV file
+RAW_OUTPUT_DIR = os.path.join(SIMULATION_CSV_DIR, "raw")  # Raw per-simulation sweep data
 
 # Columns for minimal result file (essential data only)
 MINIMAL_RESULT_COLUMNS = [

@@ -155,12 +155,52 @@ def extract_optical_parameters(fde_session, length, wavelength, sim_id=None):
         # Plot if enabled
         if should_plot():
             plot_optical_results(V, d_neff, alpha_dB_per_cm, d_phi, v_pi)
-        
+
+        # Save raw sweep data if sim_id is provided
+        if sim_id is not None:
+            save_raw_sweep_data(sim_id, V, neff, alpha_dB_per_cm, d_phi, v_pi)
+
         return d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi
-        
+
     except Exception as e:
         print(f"  [ERROR] Failed to extract optical parameters: {e}")
         raise e
+
+
+def save_raw_sweep_data(sim_id, V, neff, alpha_dB_per_cm, d_phi, v_pi):
+    """
+    Saves raw voltage-sweep data to individual CSV file.
+
+    Args:
+        sim_id: Simulation ID
+        V: Voltage array
+        neff: Complex effective index array
+        alpha_dB_per_cm: Optical loss array
+        d_phi: Phase shift array
+        v_pi: V_pi value (scalar)
+    """
+    # Create output directory
+    os.makedirs(config.RAW_OUTPUT_DIR, exist_ok=True)
+
+    # Build v_pi column (value in first row, NaN elsewhere)
+    v_pi_col = np.full(len(V), np.nan)
+    v_pi_col[0] = v_pi
+
+    # Create DataFrame
+    df = pd.DataFrame({
+        'voltage': V,
+        'neff_real': np.real(neff),
+        'neff_imag': np.imag(neff),
+        'neff_complex': [f"{val.real}+{val.imag}j" for val in neff],
+        'alpha_dB_per_cm': alpha_dB_per_cm,
+        'D_phi': d_phi,
+        'v_pi': v_pi_col
+    })
+
+    # Save to file
+    filename = os.path.join(config.RAW_OUTPUT_DIR, f"sim_{sim_id}_raw.csv")
+    df.to_csv(filename, index=False)
+    print(f"  -> Raw sweep data saved to {filename}")
 
 
 def calc_alpha(neff, wavelength):
