@@ -152,14 +152,6 @@ def temp_params_csv(temp_csv_dir, sample_params):
     return str(filepath)
 
 
-@pytest.fixture
-def temp_archive_dir(tmp_path):
-    """Create a temporary archive directory."""
-    archive_dir = tmp_path / "results_archive"
-    archive_dir.mkdir()
-    return archive_dir
-
-
 # ============================================================================
 # Mock Lumerical Fixtures
 # ============================================================================
@@ -216,7 +208,7 @@ def mock_fde_session(sample_neff_reaches_pi):
 # ============================================================================
 
 @pytest.fixture
-def mock_config(temp_csv_dir, temp_archive_dir, monkeypatch):
+def mock_config(temp_csv_dir, monkeypatch):
     """Override config values for testing."""
     import config as cfg
 
@@ -225,7 +217,6 @@ def mock_config(temp_csv_dir, temp_archive_dir, monkeypatch):
     monkeypatch.setattr(cfg, 'RESULTS_CSV_FILE', str(temp_csv_dir / "result.csv"))
     monkeypatch.setattr(cfg, 'RESULTS_FULL_CSV_FILE', str(temp_csv_dir / "result_full.csv"))
     monkeypatch.setattr(cfg, 'ERRORS_CSV_FILE', str(temp_csv_dir / "errors.csv"))
-    monkeypatch.setattr(cfg, 'RESULTS_ARCHIVE_DIR', str(temp_archive_dir))
     monkeypatch.setattr(cfg, 'DEBUG', False)
     monkeypatch.setattr(cfg, 'SHOW_PLOTS', False)
 

@@ -17,17 +17,14 @@ import config
 import sim_handler
 import data_processor
 
-# Add Lumerical API to path (from config)
-sys.path.append(config.LUMERICAL_API_PATH)
-
 import numpy as np
 import pandas as pd
 
-try:
-    import lumapi
-except ImportError:
+# lumapi is now imported by sim_handler
+if sim_handler.lumapi is None:
     print("[ERROR] lumapi not found. Make sure Lumerical is installed.")
     sys.exit(1)
+lumapi = sim_handler.lumapi
 
 # Output CSV file
 OUTPUT_CSV = os.path.join(config.SIMULATION_CSV_DIR, "neff_raw_data.csv")
@@ -94,7 +91,9 @@ def main():
 
     print("\n[A4] Extracting capacitance data...")
     try:
-        V_cap, C_total_pF_cm = data_processor.extract_capacitance(charge, sim_id=0)
+        raw_charge = sim_handler.extract_raw_charge_data(charge)
+        V_cap, C_total_pF_cm = data_processor.process_charge_data(
+            raw_charge['V_drain'], raw_charge['n'], raw_charge['p'], sim_id=0)
         print(f"     Extracted {len(V_cap)} voltage points")
         print(f"     Capacitance range: [{C_total_pF_cm.min():.2f}, {C_total_pF_cm.max():.2f}] pF/cm")
     except Exception as e:

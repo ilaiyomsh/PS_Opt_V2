@@ -22,7 +22,7 @@ class TestSaveSingleResultToCsv:
     @pytest.mark.integration
     def test_creates_new_file(self, mock_config, temp_csv_dir):
         """Test creating a new results CSV file."""
-        from data_processor import save_single_result_to_csv
+        from run_simulation import save_single_result_to_csv
         import config
 
         result = {
@@ -51,7 +51,7 @@ class TestSaveSingleResultToCsv:
     @pytest.mark.integration
     def test_appends_to_existing(self, mock_config, temp_csv_dir):
         """Test appending to existing results CSV file."""
-        from data_processor import save_single_result_to_csv
+        from run_simulation import save_single_result_to_csv
         import config
 
         result1 = {
@@ -78,7 +78,7 @@ class TestSaveSingleResultToCsv:
     @pytest.mark.integration
     def test_saves_minimal_columns(self, mock_config, temp_csv_dir):
         """Test that minimal result file only has essential columns."""
-        from data_processor import save_single_result_to_csv
+        from run_simulation import save_single_result_to_csv
         import config
 
         result = {
@@ -105,7 +105,7 @@ class TestSaveSingleResultToCsv:
     @pytest.mark.integration
     def test_saves_full_file(self, mock_config, temp_csv_dir):
         """Test that full results file is also created."""
-        from data_processor import save_single_result_to_csv
+        from run_simulation import save_single_result_to_csv
         import config
 
         result = {
@@ -135,7 +135,7 @@ class TestSaveErrorToCsv:
     @pytest.mark.integration
     def test_creates_error_file(self, mock_config, temp_csv_dir):
         """Test creating error CSV file."""
-        from data_processor import save_error_to_csv
+        from run_simulation import save_error_to_csv
         import config
 
         error = ValueError("Test error message")
@@ -152,7 +152,7 @@ class TestSaveErrorToCsv:
     @pytest.mark.integration
     def test_error_record_content(self, mock_config, temp_csv_dir):
         """Test that error record contains expected fields."""
-        from data_processor import save_error_to_csv
+        from run_simulation import save_error_to_csv
         import config
 
         error = RuntimeError("Simulation failed")
@@ -174,7 +174,7 @@ class TestSaveErrorToCsv:
     @pytest.mark.integration
     def test_appends_multiple_errors(self, mock_config, temp_csv_dir):
         """Test appending multiple errors."""
-        from data_processor import save_error_to_csv
+        from run_simulation import save_error_to_csv
         import config
 
         save_error_to_csv(1, 'CHARGE_RUN', ValueError("Error 1"))

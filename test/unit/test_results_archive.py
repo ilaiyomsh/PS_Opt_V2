@@ -1,5 +1,7 @@
 # test/unit/test_results_archive.py
 # Unit tests for results_archive.py
+# NOTE: results_archive is no longer used by the active system modules.
+# These tests are skipped until the module is either removed or re-integrated.
 
 import pytest
 import numpy as np
@@ -8,6 +10,8 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'system'))
+
+pytestmark = pytest.mark.skip(reason="results_archive module is deprecated and no longer used by active system modules")
 
 
 # ============================================================================

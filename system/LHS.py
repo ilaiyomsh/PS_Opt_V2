@@ -2,7 +2,6 @@
 # Latin Hypercube Sampling (LHS) module for generating initial parameter samples
 
 import config
-import results_archive
 import pandas as pd
 import numpy as np
 from scipy.stats import qmc
@@ -14,7 +13,7 @@ def generate_lhs_samples(start_sim_id=None):
     Generates Latin Hypercube Sampling (LHS) samples based on parameter bounds from config.
 
     Args:
-        start_sim_id (int, optional): Starting sim_id. If None, auto-detects from archive.
+        start_sim_id (int, optional): Starting sim_id. If None, defaults to 1.
 
     Returns:
         pd.DataFrame: DataFrame containing the generated samples with columns
@@ -37,8 +36,7 @@ def generate_lhs_samples(start_sim_id=None):
 
     # Determine starting sim_id
     if start_sim_id is None:
-        start_sim_id = results_archive.get_next_sim_id()
-        print(f"  Starting sim_id: {start_sim_id} (auto-detected from archive)")
+        start_sim_id = 1  # LHS always starts fresh
 
     # Extract parameter names and convert bounds dictionary to numpy array format
     param_names = list(bounds.keys())

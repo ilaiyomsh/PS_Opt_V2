@@ -7,10 +7,10 @@ import os
 import logging
 from datetime import datetime
 import config
+import cost as cost_module
 import LHS
 import run_simulation
 import BO
-import results_archive
 import pandas as pd
 import numpy as np
 
@@ -80,26 +80,26 @@ def log_raw(message):
 def debug_prompt(message):
     """
     Prompts user for confirmation in DEBUG mode.
-    
+
     Args:
         message (str): Message to display before prompt
-    
+
     Returns:
         bool: True to continue, False to skip/abort
     """
     if not config.DEBUG:
         return True
-    
+
     print(f"\n[DEBUG] {message}")
     response = input("[DEBUG] Press Enter to continue, 's' to skip, 'q' to quit: ").strip().lower()
-    
+
     if response == 'q':
         print("[DEBUG] User requested quit.")
         sys.exit(0)
     elif response == 's':
         print("[DEBUG] User requested skip.")
         return False
-    
+
     return True
 
 
@@ -110,6 +110,7 @@ def main():
     Workflow:
         1. Generate LHS samples (initial parameter sets)
         2. Run initial simulations for all LHS samples
+        2b. Bootstrap C_BASE from results
         3. Loop:
            a. Train Bayesian Optimizer with current results
            b. Get next parameter set from optimizer
@@ -153,7 +154,7 @@ def main():
     print("PS_Opt_V2 - PIN Diode Phase Shifter Optimization")
     print(f"DEBUG Mode: {'ON' if config.DEBUG else 'OFF'}")
     print("=" * 60)
-    
+
     # --- Step 1: Generate LHS Sampling Plan ---
     log_raw("-" * 80)
     log("STAGE 1: LHS SAMPLING")
@@ -183,7 +184,7 @@ def main():
             print(f"[ERROR] Failed to generate LHS samples: {e}")
             return
     log_raw("")
-    
+
     # --- Step 2: Run Initial Simulations ---
     log_raw("-" * 80)
     log("STAGE 2: INITIAL SIMULATIONS (LHS)")
@@ -236,7 +237,12 @@ def main():
             print("[ERROR] No results file found. Cannot continue without initial simulations.")
             return
     log_raw("")
-    
+
+    # --- Step 2b: Bootstrap C_BASE from all results ---
+    if os.path.exists(config.RESULTS_CSV_FILE):
+        results_df = pd.read_csv(config.RESULTS_CSV_FILE)
+        cost_module.calculate_c_base_from_results(results_df)
+
     # --- Step 3: Bayesian Optimization Loop ---
     log_raw("-" * 80)
     log("STAGE 3: BAYESIAN OPTIMIZATION")
@@ -247,13 +253,11 @@ def main():
         print("[INFO] BO loop skipped by user.")
         return
 
-    # Determine starting sim_id for BO iterations using all results (current + archived)
-    bo_sim_id = results_archive.get_next_sim_id()
-
-    # Log how many data points will be used for training
-    all_results = results_archive.load_all_results_for_bo()
-    if len(all_results) > 0:
-        log_raw(f"  Training GP on {len(all_results)} data points (current + archived)...")
+    # Determine starting sim_id from current results
+    if os.path.exists(config.RESULTS_CSV_FILE):
+        bo_sim_id = len(pd.read_csv(config.RESULTS_CSV_FILE)) + 1
+    else:
+        bo_sim_id = 1
 
     iteration = 0
 
@@ -270,11 +274,11 @@ def main():
         try:
             # 3a. Train Bayesian Optimizer with current results
             print("Training optimizer with existing results...")
-            optimizer = BO.train_optimizer(result_csv_path=config.RESULTS_CSV_FILE, use_archive=config.USE_ARCHIVE)
+            optimizer = BO.train_optimizer(result_csv_path=config.RESULTS_CSV_FILE)
 
             # 3b. Get next parameter set from optimizer
             print("Predicting next parameter set...")
-            next_params = BO.get_next_sample(optimizer, result_csv_path=config.RESULTS_CSV_FILE)
+            next_params = BO.get_next_sample(optimizer)
 
             if next_params is None:
                 log_raw("  [WARNING] Optimizer returned None. Stopping optimization.")
@@ -341,7 +345,7 @@ def main():
             bo_sim_id += 1  # Increment sim_id even on error
             continue
     log_raw("")
-    
+
     # --- Step 4: Output Final Results ---
     log_raw("-" * 80)
     log("STAGE 4: FINAL RESULTS")
@@ -414,18 +418,6 @@ def main():
     except Exception as e:
         log_raw(f"  [ERROR] Failed to read final results: {e}")
         print(f"[ERROR] Failed to read final results: {e}")
-
-    # Auto-archive results if enabled
-    if config.AUTO_ARCHIVE_RESULTS:
-        print("\n--- Archiving Results ---")
-        log_raw("\n--- Archiving Results ---")
-        try:
-            archive_path = results_archive.archive_current_results()
-            if archive_path:
-                log_raw(f"  Results archived to: {archive_path}")
-        except Exception as e:
-            log_raw(f"  [WARNING] Failed to archive results: {e}")
-            print(f"  [WARNING] Failed to archive results: {e}")
 
     # Final summary
     end_time = datetime.now()

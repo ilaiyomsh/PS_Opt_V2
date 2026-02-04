@@ -37,11 +37,6 @@ MINIMAL_RESULT_COLUMNS = [
     'max_dphi_rad', 'cost'  # Phase shift & BO metric
 ]
 
-# Results archive
-RESULTS_ARCHIVE_DIR = os.path.join(_BASE_DIR, "results_archive")
-AUTO_ARCHIVE_RESULTS = True
-USE_ARCHIVE = True  # Use archived results for BO training
-
 # --- Simulation Control Flags ---
 RUN_SIMULATION = True   # Run simulations (False = use existing data)
 HIDE_GUI = True         # Hide Lumerical GUI
@@ -81,8 +76,6 @@ DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 # --- Bayesian Optimization ---
 MAX_ITERATIONS = 1    # BO iterations
 BO_KAPPA = 2.0        # UCB kappa (low=exploit, high=explore)
-DUPLICATE_TOLERANCE = 0.01  # Relative tolerance for duplicate detection (1% = 0.01)
-
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}  # dB/cm, V*mm
 TARGETS = {'loss': 2.0, 'vpil': 1.0}      # Normalization targets

@@ -1,278 +1,110 @@
 # system/BO.py
 # Bayesian Optimization module for parameter optimization
-# Uses Gaussian Process model, loss function, and Acquisition Function (UCB)
+# Uses Gaussian Process model and UCB acquisition function
 
 import os
 import config
-import cost
-import results_archive
 import pandas as pd
 import numpy as np
 from bayes_opt import BayesianOptimization
 from bayes_opt.acquisition import UpperConfidenceBound
 
-# Backward compatibility re-export
-from cost import calculate_cost as calculate_loss_function
 
-
-def train_optimizer(result_csv_path=None, use_archive=True):
+def train_optimizer(result_csv_path=None):
     """
-    Trains the Bayesian Optimizer with prior data from result.csv and archive.
+    Trains the Bayesian Optimizer with prior data from result.csv.
 
     Args:
-        result_csv_path (str, optional): Path to result.csv file.
-                                        If None, uses config.RESULTS_CSV_FILE
-        use_archive (bool): If True, loads all archived results as well.
-                           This enables cumulative learning across runs.
+        result_csv_path: Path to result.csv. Defaults to config.RESULTS_CSV_FILE.
 
     Returns:
         BayesianOptimization: Trained optimizer object
-
-    Process:
-        1. Loads result.csv with current simulation results
-        2. Optionally loads all archived results
-        3. Merges and deduplicates
-        4. Registers all data points with the optimizer
     """
     if result_csv_path is None:
         result_csv_path = config.RESULTS_CSV_FILE
 
-    # Load results - either from archive or just current file
-    if use_archive:
-        df = results_archive.load_all_results_for_bo()
-        if df.empty:
-            # Fallback to current file only
-            if not os.path.exists(result_csv_path):
-                raise FileNotFoundError(f"Results file not found: {result_csv_path}. Run initial simulations first.")
-            df = pd.read_csv(result_csv_path)
-    else:
-        # Load only from specified file
-        if not os.path.exists(result_csv_path):
-            raise FileNotFoundError(f"Results file not found: {result_csv_path}. Run initial simulations first.")
-        df = pd.read_csv(result_csv_path)
-        print(f"  -> Loaded {len(df)} prior data points from {result_csv_path}")
+    if not os.path.exists(result_csv_path):
+        raise FileNotFoundError(f"Results file not found: {result_csv_path}")
 
+    df = pd.read_csv(result_csv_path)
     if len(df) == 0:
         raise ValueError("Results file is empty. Run initial simulations first.")
 
-    # Calculate dynamic C_BASE from valid results (per methodology Eq. 27)
-    cost.calculate_c_base_from_results(df)
-    
-    # Convert SWEEP_PARAMETERS to pbounds format for BayesianOptimization
-    # config has: {'w_r': {'min': 350e-9, 'max': 450e-9, 'unit': 'm'}}
-    # BayesianOptimization needs: {'w_r': (350e-9, 450e-9)}
-    pbounds = {}
+    print(f"  -> Loaded {len(df)} prior data points from {result_csv_path}")
+
+    # Build pbounds: {'w_r': (350e-9, 450e-9), ...}
     param_names = list(config.SWEEP_PARAMETERS.keys())
-    for param_name, param_config in config.SWEEP_PARAMETERS.items():
-        pbounds[param_name] = (param_config['min'], param_config['max'])
-    
-    # Create acquisition function with kappa from config
-    utility = UpperConfidenceBound(kappa=config.BO_KAPPA)
-    
-    # Create optimizer
-    # Note: f=None because we use suggest() instead of maximize()
+    pbounds = {name: (cfg['min'], cfg['max'])
+               for name, cfg in config.SWEEP_PARAMETERS.items()}
+
     optimizer = BayesianOptimization(
         f=None,
         pbounds=pbounds,
         random_state=42,
-        acquisition_function=utility,
+        acquisition_function=UpperConfidenceBound(kappa=config.BO_KAPPA),
         verbose=2,
     )
-    
+
     # Register each prior data point
-    registered_count = 0
-    skipped_count = 0
-    
+    registered = 0
+    skipped = 0
+
     for index, row in df.iterrows():
-        # Extract parameter values
         try:
-            params = {}
-            for param_name in param_names:
-                if param_name not in row:
-                    print(f"  [WARNING] Parameter '{param_name}' not found in row {index}. Skipping.")
-                    break
-                params[param_name] = row[param_name]
-            else:
-                # Extract loss and vpil from results
-                # Check for column names (may vary based on result.csv structure)
-                alpha = None
-                v_pi_l = None
-                max_dphi = None
-                
-                if 'loss_at_v_pi_dB_per_cm' in row:
-                    alpha = row['loss_at_v_pi_dB_per_cm']
-                elif 'loss_db' in row:
-                    alpha = row['loss_db']
-                elif 'alpha' in row:
-                    alpha = row['alpha']
-                
-                if 'v_pi_l_Vmm' in row:
-                    v_pi_l = row['v_pi_l_Vmm']
-                elif 'vpil' in row:
-                    v_pi_l = row['vpil']
-                elif 'v_pi_l' in row:
-                    v_pi_l = row['v_pi_l']
-                
-                # Extract max_dphi (with default 0.0 if not present - for backwards compatibility)
-                if 'max_dphi_rad' in row:
-                    max_dphi = row['max_dphi_rad']
-                else:
-                    max_dphi = 0.0
-                
-                # Check if we have valid alpha and v_pi_l (NaN is allowed - it's treated as failure)
-                if alpha is None or v_pi_l is None:
-                    print(f"  [WARNING] Missing alpha or v_pi_l in row {index}. Skipping.")
-                    skipped_count += 1
-                    continue
-                
-                # Handle NaN values by converting to None (for calculate_loss_function)
-                if np.isnan(alpha):
-                    alpha = None
-                if np.isnan(v_pi_l):
-                    v_pi_l = None
-                if max_dphi is not None and np.isnan(max_dphi):
-                    max_dphi = 0.0
-                
-                # Calculate cost (function handles both success and failure cases)
-                cost_val = cost.calculate_cost(alpha, v_pi_l, max_dphi)
-                
-                # Register with optimizer
-                optimizer.register(params=params, target=cost_val)
-                registered_count += 1
-                
+            # Check all params exist
+            if not all(name in row for name in param_names):
+                skipped += 1
+                continue
+
+            params = {name: row[name] for name in param_names}
+
+            # Cost column is always present (written by run_simulation)
+            if 'cost' not in row or np.isnan(row['cost']):
+                skipped += 1
+                continue
+
+            # CSV stores positive cost; BO maximizes, so negate
+            optimizer.register(params=params, target=-row['cost'])
+            registered += 1
+
         except Exception as e:
-            print(f"  [WARNING] Error processing row {index}: {e}. Skipping.")
-            skipped_count += 1
-            continue
-    
-    print(f"  -> Registered {registered_count} data points with optimizer")
-    if skipped_count > 0:
-        print(f"  -> Skipped {skipped_count} rows due to errors or missing data")
+            print(f"  [WARNING] Error processing row {index}: {e}")
+            skipped += 1
+
+    print(f"  -> Registered {registered} data points with optimizer")
+    if skipped > 0:
+        print(f"  -> Skipped {skipped} rows")
 
     return optimizer
 
 
-def _is_duplicate_params(new_params, existing_df, tolerance=None):
+def get_next_sample(optimizer):
     """
-    Check if suggested parameters are too similar to existing results.
+    Suggests next parameter set to sample using the trained optimizer.
 
     Args:
-        new_params (dict): Suggested parameter values
-        existing_df (pd.DataFrame): DataFrame with existing results
-        tolerance (float): Relative tolerance for considering params as duplicate (default 1%)
+        optimizer: Trained BayesianOptimization object
 
     Returns:
-        bool: True if duplicate found, False otherwise
-    """
-    if tolerance is None:
-        tolerance = config.DUPLICATE_TOLERANCE
-
-    if existing_df is None or len(existing_df) == 0:
-        return False
-
-    param_names = list(config.SWEEP_PARAMETERS.keys())
-
-    for _, row in existing_df.iterrows():
-        is_match = True
-        for param in param_names:
-            if param not in new_params or param not in row:
-                is_match = False
-                break
-
-            old_val = row[param]
-            new_val = new_params[param]
-
-            # Calculate relative difference
-            if old_val == 0:
-                rel_diff = abs(new_val)
-            else:
-                rel_diff = abs((new_val - old_val) / old_val)
-
-            if rel_diff > tolerance:
-                is_match = False
-                break
-
-        if is_match:
-            return True
-
-    return False
-
-
-def get_next_sample(optimizer, result_csv_path=None, max_retries=5):
-    """
-    Predicts next parameter set to sample using Bayesian Optimization.
-    Includes duplicate detection to avoid re-sampling similar points.
-
-    Args:
-        optimizer (BayesianOptimization): Trained BayesianOptimization object
-        result_csv_path (str, optional): Path to result.csv file (for reference).
-                                        If None, uses config.RESULTS_CSV_FILE
-        max_retries (int): Maximum attempts to find non-duplicate point
-
-    Returns:
-        dict: Dictionary containing next parameter values to sample
-              Keys match parameter names in config.SWEEP_PARAMETERS
-
-    Process:
-        1. Uses Gaussian Process model to predict objective function
-        2. Uses Acquisition Function (UCB) to select next point
-        3. Checks for duplicates and retries if needed
-        4. Returns parameter dictionary for next simulation
+        dict: Next parameter values, or None on failure
     """
     if optimizer is None:
         raise ValueError("Optimizer is None. Train the optimizer first.")
 
-    if result_csv_path is None:
-        result_csv_path = config.RESULTS_CSV_FILE
-
-    # Load ALL existing results (current + archived) for duplicate checking
-    existing_df = results_archive.load_all_results_for_bo()
-
     try:
-        for retry in range(max_retries):
-            # Use suggest() to get the next point to sample
-            next_point = optimizer.suggest()
+        next_point = optimizer.suggest()
+        if next_point is None:
+            print("  [WARNING] Optimizer suggest() returned None")
+            return None
 
-            if next_point is None:
-                print("  [WARNING] Optimizer suggest() returned None")
+        # Clip to bounds
+        for name, cfg in config.SWEEP_PARAMETERS.items():
+            if name not in next_point:
+                print(f"  [WARNING] Parameter '{name}' missing from suggested point")
                 return None
+            next_point[name] = np.clip(next_point[name], cfg['min'], cfg['max'])
 
-            # Verify all parameters are present and within bounds
-            param_names = list(config.SWEEP_PARAMETERS.keys())
-            valid = True
-
-            for param_name in param_names:
-                if param_name not in next_point:
-                    print(f"  [WARNING] Parameter '{param_name}' missing from suggested point")
-                    valid = False
-                    break
-
-                # Clip to bounds if needed
-                min_val = config.SWEEP_PARAMETERS[param_name]['min']
-                max_val = config.SWEEP_PARAMETERS[param_name]['max']
-
-                if next_point[param_name] < min_val:
-                    print(f"  [WARNING] Clipping {param_name} from {next_point[param_name]} to {min_val}")
-                    next_point[param_name] = min_val
-                elif next_point[param_name] > max_val:
-                    print(f"  [WARNING] Clipping {param_name} from {next_point[param_name]} to {max_val}")
-                    next_point[param_name] = max_val
-
-            if not valid:
-                continue
-
-            # Check for duplicates
-            if _is_duplicate_params(next_point, existing_df):
-                print(f"  [INFO] Suggested point is duplicate of existing result (retry {retry + 1}/{max_retries})")
-                # Register this point with a dummy value to force optimizer to explore elsewhere
-                optimizer.register(params=next_point, target=-1e10)
-                continue
-
-            print(f"  -> Next suggested point: {next_point}")
-            return next_point
-
-        # If all retries exhausted, return the last suggestion anyway
-        print(f"  [WARNING] Could not find non-duplicate point after {max_retries} retries. Using last suggestion.")
+        print(f"  -> Next suggested point: {next_point}")
         return next_point
 
     except Exception as e:
@@ -282,14 +114,13 @@ def get_next_sample(optimizer, result_csv_path=None, max_retries=5):
 
 def get_best_result(result_csv_path=None):
     """
-    Returns the best result found so far from results CSV.
+    Returns the best result (lowest cost) from results CSV.
 
     Args:
-        result_csv_path (str, optional): Path to result.csv file.
-                                        If None, uses config.RESULTS_CSV_FILE
+        result_csv_path: Path to result.csv. Defaults to config.RESULTS_CSV_FILE.
 
     Returns:
-        dict: Best result row as dictionary, or None if no valid results
+        dict: Best result row, or None if no valid results
     """
     if result_csv_path is None:
         result_csv_path = config.RESULTS_CSV_FILE
@@ -298,55 +129,13 @@ def get_best_result(result_csv_path=None):
         return None
 
     df = pd.read_csv(result_csv_path)
-
-    if len(df) == 0:
+    if len(df) == 0 or 'cost' not in df.columns:
         return None
 
-    # Ensure C_BASE is calculated from current results
-    cost.calculate_c_base_from_results(result_csv_path)
-    
-    # Calculate cost for each row and find the best (lowest cost = highest negative value)
-    best_cost = float('inf')
-    best_row = None
-    
-    for index, row in df.iterrows():
-        try:
-            alpha = None
-            v_pi_l = None
-            max_dphi = None
-            
-            if 'loss_at_v_pi_dB_per_cm' in row:
-                alpha = row['loss_at_v_pi_dB_per_cm']
-            if 'v_pi_l_Vmm' in row:
-                v_pi_l = row['v_pi_l_Vmm']
-            
-            # Extract max_dphi (with default 0.0 if not present - for backwards compatibility)
-            if 'max_dphi_rad' in row:
-                max_dphi = row['max_dphi_rad']
-            else:
-                max_dphi = 0.0
-            
-            # Check if we have valid alpha and v_pi_l (NaN is allowed - it's treated as failure)
-            if alpha is None or v_pi_l is None:
-                continue
-            
-            # Handle NaN values by converting to None (for calculate_loss_function)
-            if np.isnan(alpha):
-                alpha = None
-            if np.isnan(v_pi_l):
-                v_pi_l = None
-            if max_dphi is not None and np.isnan(max_dphi):
-                max_dphi = 0.0
-            
-            # Calculate cost (positive value, lower is better)
-            cost_val = -cost.calculate_cost(alpha, v_pi_l, max_dphi)
-            
-            if cost_val < best_cost:
-                best_cost = cost_val
-                best_row = row.to_dict()
-                
-        except Exception:
-            continue
-    
-    return best_row
+    # Drop rows with NaN cost, find minimum (lowest positive cost = best)
+    valid = df.dropna(subset=['cost'])
+    if len(valid) == 0:
+        return None
 
+    best_idx = valid['cost'].idxmin()
+    return valid.loc[best_idx].to_dict()
