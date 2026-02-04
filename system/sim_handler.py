@@ -7,6 +7,7 @@ import time
 import os
 import config
 import numpy as np
+import pandas as pd
 
 # Import lumapi at module level (only sim_handler touches lumapi)
 sys.path.append(config.LUMERICAL_API_PATH)
@@ -445,7 +446,8 @@ def run_full_simulation(params, sim_id=None):
     """
     Runs a complete CHARGE + FDE simulation pipeline.
 
-    Opens/closes Lumerical sessions internally. Returns raw data arrays.
+    Opens/closes Lumerical sessions internally. Returns merged DataFrame
+    with electrical and optical data per voltage step.
     Raises SimulationError on failure with stage tracking.
 
     Args:
@@ -453,11 +455,10 @@ def run_full_simulation(params, sim_id=None):
         sim_id (int, optional): Simulation ID for logging
 
     Returns:
-        dict: {
-            'V_drain': array, 'n': array, 'p': array,
-            'neff': array,
-            'charge_time': float, 'fde_time': float
-        }
+        tuple: (df, timing) where:
+            - df (pd.DataFrame): Merged data with columns [V_drain, n, p, neff]
+              Each row corresponds to one voltage step.
+            - timing (dict): {'charge_time': float, 'fde_time': float}
 
     Raises:
         SimulationError: On any simulation failure (with stage info)
@@ -557,4 +558,17 @@ def run_full_simulation(params, sim_id=None):
             except Exception:
                 pass
 
-    return result
+    # Build merged DataFrame with electrical and optical data per voltage step
+    df = pd.DataFrame({
+        'V_drain': result['V_drain'],
+        'n': result['n'],
+        'p': result['p'],
+        'neff': result['neff']
+    })
+
+    timing = {
+        'charge_time': result['charge_time'],
+        'fde_time': result['fde_time']
+    }
+
+    return df, timing
