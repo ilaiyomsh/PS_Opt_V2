@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 
 import config
+import cost as cost_module
 import sim_handler
 import data_processor
 import results_archive
@@ -575,17 +576,19 @@ def run_row(row, sim_id=None, is_last=False):
         # Cost function metrics (for optimization analysis)
         is_valid = not np.isnan(v_pi_l) if v_pi_l is not None else False
 
+        neg_cost = cost_module.calculate_cost(
+            alpha=loss_at_v_pi if is_valid else None,
+            v_pi_l=v_pi_l if is_valid else None,
+            max_dphi=max_dphi
+        )
+        cost_value = -neg_cost
+
         if is_valid:
-            # Calculate normalized metrics (Eq. 27 top case)
             norm_loss = (loss_at_v_pi / config.TARGETS['loss']) ** 2
             norm_vpil = (v_pi_l / config.TARGETS['vpil']) ** 2
-            cost = config.FOM_WEIGHTS['loss'] * norm_loss + config.FOM_WEIGHTS['vpil'] * norm_vpil
         else:
-            # Penalty case - set normalized metrics to NaN
             norm_loss = np.nan
             norm_vpil = np.nan
-            # Use a large penalty value (actual C_BASE is dynamic, use placeholder)
-            cost = 1e9  # Penalty indicator
 
         # Create result dictionary with timing and analysis data
         result = {
@@ -600,7 +603,7 @@ def run_row(row, sim_id=None, is_last=False):
             'is_valid': is_valid,
             'norm_loss': norm_loss,
             'norm_vpil': norm_vpil,
-            'cost': cost,
+            'cost': cost_value,
             # Timing data
             'charge_time_s': charge_time,
             'fde_time_s': fde_time,
@@ -614,7 +617,7 @@ def run_row(row, sim_id=None, is_last=False):
         }
 
         print(f"\n  Result: V_pi*L = {v_pi_l:.4f} V*mm, Loss = {loss_at_v_pi:.2f} dB/cm, C = {C_at_v_pi:.2f} pF/cm")
-        print(f"  Cost: {cost:.4f} (valid={is_valid}, norm_loss={norm_loss:.2f}, norm_vpil={norm_vpil:.2f})" if is_valid else f"  Cost: PENALTY (valid=False)")
+        print(f"  Cost: {cost_value:.4f} (valid={is_valid}, norm_loss={norm_loss:.2f}, norm_vpil={norm_vpil:.2f})" if is_valid else f"  Cost: PENALTY (valid=False)")
         print(f"  Timing: CHARGE={charge_time:.1f}s, FDE={fde_time:.1f}s, Total={total_sim_time:.1f}s")
         
     except Exception as e:
