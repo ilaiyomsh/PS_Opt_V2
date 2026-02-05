@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PS_Opt_V2 Architecture</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5}
+#canvas-wrap{width:100%;height:100%;cursor:grab;position:relative}
+#canvas-wrap.grabbing{cursor:grabbing}
+svg{display:block}
+/* toolbar */
+#toolbar{position:fixed;top:16px;left:16px;z-index:10;display:flex;gap:8px;align-items:center}
+#toolbar button{width:36px;height:36px;border:1px solid #d1d5db;border-radius:8px;background:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#374151;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+#toolbar button:hover{background:#f3f4f6}
+#zoom-label{font-size:12px;color:#6b7280;background:#fff;padding:4px 10px;border-radius:6px;border:1px solid #d1d5db;min-width:50px;text-align:center}
+/* legend */
+#legend{position:fixed;top:16px;right:16px;z-index:10;background:#fff;border:1px solid #d1d5db;border-radius:10px;padding:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:12px;display:flex;flex-direction:column;gap:5px;transition:right .25s ease}
+body:has(#detail-panel.open) #legend{right:336px}
+#legend .row{display:flex;align-items:center;gap:6px}
+#legend .dot{width:12px;height:12px;border-radius:3px;border:2px solid;flex-shrink:0}
+/* title */
+#title-bar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10;background:#fff;border:1px solid #d1d5db;border-radius:10px;padding:8px 24px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;pointer-events:none}
+#title-bar h1{font-size:15px;font-weight:700;color:#1e293b}
+#title-bar p{font-size:11px;color:#64748b}
+/* detail panel */
+#detail-panel{position:fixed;top:0;right:0;width:320px;height:100%;z-index:20;background:#fff;border-left:1px solid #d1d5db;box-shadow:-4px 0 16px rgba(0,0,0,.08);transform:translateX(100%);transition:transform .25s ease;overflow-y:auto;display:flex;flex-direction:column}
+#detail-panel.open{transform:translateX(0)}
+#detail-panel .dp-header{padding:16px 16px 12px;position:relative}
+#detail-panel .dp-header .dp-mod-tag{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:6px}
+#detail-panel .dp-header .dp-fn-name{font-size:16px;font-weight:700;font-family:Consolas,"SF Mono",monospace;color:#1e293b;word-break:break-all}
+#detail-panel .dp-header .dp-sub{font-size:12px;color:#64748b;margin-top:4px}
+#detail-panel .dp-close{position:absolute;top:12px;right:12px;width:28px;height:28px;border:1px solid #d1d5db;border-radius:6px;background:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#64748b}
+#detail-panel .dp-close:hover{background:#f3f4f6;color:#1e293b}
+#detail-panel .dp-section{padding:0 16px 14px}
+#detail-panel .dp-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:6px;border-top:1px solid #e5e7eb;padding-top:10px}
+#detail-panel .dp-section ul{margin:0;padding:0 0 0 16px;font-size:12px;color:#374151;line-height:1.6}
+#detail-panel .dp-section p{margin:0;font-size:12px;color:#374151;line-height:1.5}
+#detail-panel .dp-conn-link{color:#2563eb;cursor:pointer;font-family:Consolas,"SF Mono",monospace;font-size:11px;text-decoration:none}
+#detail-panel .dp-conn-link:hover{text-decoration:underline}
+#detail-panel .dp-conn-row{display:flex;align-items:center;gap:6px;margin-bottom:3px;font-size:12px;color:#64748b}
+#detail-panel .dp-conn-arrow{font-size:10px;flex-shrink:0;width:16px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btn-zin" title="Zoom in">+</button>
+  <button id="btn-zout" title="Zoom out">&minus;</button>
+  <span id="zoom-label">100%</span>
+  <button id="btn-fit" title="Fit to screen">&#11034;</button>
+  <button id="btn-reset" title="Reset view">R</button>
+</div>
+
+<div id="title-bar"><h1>PS_Opt_V2 &mdash; Function-Level Architecture</h1><p>PIN Diode Phase Shifter Optimization &bull; Click: details &bull; Pan: drag &bull; Zoom: scroll</p></div>
+
+<div id="legend">
+  <div class="row"><div class="dot" style="background:#eff6ff;border-color:#2563eb"></div>main.py</div>
+  <div class="row"><div class="dot" style="background:#f0fdf4;border-color:#16a34a"></div>run_simulation.py</div>
+  <div class="row"><div class="dot" style="background:#fef2f2;border-color:#dc2626"></div>sim_handler.py</div>
+  <div class="row"><div class="dot" style="background:#f5f3ff;border-color:#7c3aed"></div>data_processor.py</div>
+  <div class="row"><div class="dot" style="background:#fffbeb;border-color:#d97706"></div>cost.py</div>
+  <div class="row"><div class="dot" style="background:#ecfeff;border-color:#0891b2"></div>BO.py</div>
+  <div class="row"><div class="dot" style="background:#fdf2f8;border-color:#db2777"></div>LHS.py</div>
+  <div class="row"><div class="dot" style="background:#f1f5f9;border-color:#94a3b8"></div>CSV file</div>
+</div>
+
+<div id="canvas-wrap">
+<svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+
+<div id="detail-panel">
+  <div class="dp-header">
+    <button class="dp-close" id="dp-close" title="Close">&times;</button>
+    <span class="dp-mod-tag" id="dp-mod-tag"></span>
+    <div class="dp-fn-name" id="dp-fn-name"></div>
+    <div class="dp-sub" id="dp-sub"></div>
+  </div>
+  <div class="dp-section" id="dp-inputs-sec">
+    <div class="dp-section-title">Inputs</div>
+    <ul id="dp-inputs"></ul>
+  </div>
+  <div class="dp-section" id="dp-output-sec">
+    <div class="dp-section-title">Output</div>
+    <p id="dp-output"></p>
+  </div>
+  <div class="dp-section" id="dp-logic-sec">
+    <div class="dp-section-title">Logic</div>
+    <p id="dp-logic"></p>
+  </div>
+  <div class="dp-section" id="dp-conn-sec">
+    <div class="dp-section-title">Connections</div>
+    <div id="dp-connections"></div>
+  </div>
+</div>
+
+<script>
+// ===================== DATA =====================
+
+const MOD = {
+  main:   { fill:'#eff6ff', stroke:'#2563eb', text:'#1e40af' },
+  runsim: { fill:'#f0fdf4', stroke:'#16a34a', text:'#166534' },
+  simh:   { fill:'#fef2f2', stroke:'#dc2626', text:'#991b1b' },
+  dp:     { fill:'#f5f3ff', stroke:'#7c3aed', text:'#5b21b6' },
+  cost:   { fill:'#fffbeb', stroke:'#d97706', text:'#92400e' },
+  bo:     { fill:'#ecfeff', stroke:'#0891b2', text:'#155e75' },
+  lhs:    { fill:'#fdf2f8', stroke:'#db2777', text:'#9d174d' },
+  file:   { fill:'#f1f5f9', stroke:'#94a3b8', text:'#475569' },
+};
+
+const N = {};
+function n(id, x, y, w, h, mod, label, sub, details) { N[id] = {id,x,y,w,h,mod,label,sub:sub||'',details:details||null}; }
+
+// ---- Row 0: Entry point ----
+n('main',       860, 30, 240, 56, 'main', 'main()', 'Entry point — 4-stage optimization pipeline', {
+  inputs: [],
+  outputs: 'None',
+  logic: '4-stage pipeline: (1) LHS sampling, (2) run initial sims + bootstrap C_BASE, (3) BO loop, (4) output best result'
+});
+n('setup_log',  1180, 30, 210, 46, 'main', 'setup_logging()', 'Dual console + file logging', {
+  inputs: [],
+  outputs: 'str \u2014 log file path',
+  logic: 'Creates logs/ dir, configures dual logging (console + file) with timestamps'
+});
+n('debug_main', 1180, 90, 210, 46, 'main', 'debug_prompt()', 'If DEBUG: confirm/skip/quit', {
+  inputs: ['message: str'],
+  outputs: 'bool \u2014 continue/skip, exits on \'q\'',
+  logic: 'In DEBUG mode: prompts user to confirm/skip/quit; non-DEBUG: always returns True'
+});
+
+// ---- Row 1: Stage 1 + Stage 2b + Stage 3 starts ----
+n('lhs',         60, 190, 320, 56, 'lhs', 'generate_lhs_samples()', 'LHS in 6D param space \u2192 params.csv', {
+  inputs: ['start_sim_id: int (optional)'],
+  outputs: 'DataFrame \u2014 LHS samples',
+  logic: 'Generates Latin Hypercube samples in 6D parameter space, scales to bounds, rounds to 4 sig figs, saves to params.csv'
+});
+n('c_base_boot',660, 190, 340, 56, 'cost','calculate_c_base_from_results()', 'C_BASE = max(valid costs) from CSV', {
+  inputs: ['result_csv_path: str (optional)'],
+  outputs: 'float \u2014 bootstrapped C_BASE value',
+  logic: 'Reads result.csv, finds max valid cost among completed simulations, updates C_BASE module state'
+});
+n('train',      1200, 190, 290, 56, 'bo',  'train_optimizer()', 'Register (params, \u2212cost) into GP model', {
+  inputs: ['result_csv_path: str (optional)'],
+  outputs: 'BayesianOptimization object',
+  logic: 'Reads result.csv, registers each (params, \u2212cost) point into GP model with UCB acquisition'
+});
+n('get_best',   1580, 190, 260, 50, 'bo',  'get_best_result()', 'Lowest cost row from result.csv', {
+  inputs: ['result_csv_path: str (optional)'],
+  outputs: 'dict or None \u2014 best result row',
+  logic: 'Reads CSV, filters valid cost values, returns row with minimum cost'
+});
+
+// ---- Row 2: LHS output + BO suggest ----
+n('f_params',   130, 310, 150, 38, 'file', 'params.csv');
+n('run_init',    60, 400, 300, 56, 'runsim','run_init_file()', 'Read params.csv, loop run_row() per row', {
+  inputs: ['params_csv_path: str (optional)', 'logger_func: callable (optional)'],
+  outputs: 'str \u2014 results CSV path',
+  logic: 'Loops run_row() for each row in params.csv, tracks success/failure counts'
+});
+n('log_result', 60, 510, 210, 44, 'runsim','_log_result()', 'Log sim timing & metrics', {
+  inputs: ['logger_func: callable', 'result: dict'],
+  outputs: 'None',
+  logic: 'Logs timing, geometry, outputs, cost components, loss/capacitance ranges'
+});
+n('suggest',   1230, 330, 290, 56, 'bo',   'get_next_sample()', 'optimizer.suggest() \u2192 clip to bounds', {
+  inputs: ['optimizer: BayesianOptimization'],
+  outputs: 'dict or None \u2014 next params',
+  logic: 'Calls optimizer.suggest(), validates parameters present, clips to bounds'
+});
+
+// ---- Row 3: Central node ----
+n('run_row',    700, 530, 380, 66, 'runsim','run_row(row, sim_id, is_last)', 'Single simulation pipeline: sim \u2192 process \u2192 cost \u2192 save', {
+  inputs: ['row: Series/dict', 'sim_id: int (optional)', 'is_last: bool (optional)'],
+  outputs: 'dict or None',
+  logic: 'Pipeline: sim \u2192 process charge/optical \u2192 build result \u2192 save \u2192 cool'
+});
+
+// ---- Row 4: Simulation ----
+n('full_sim',   720, 680, 400, 56, 'simh', 'run_full_simulation(params, sim_id)', 'CHARGE + FDE with session lifecycle', {
+  inputs: ['params: dict', 'sim_id: int (optional)'],
+  outputs: 'dict {V_drain, n, p, neff, charge_time, fde_time}',
+  logic: 'CHARGE\u2192FDE pipeline: open/configure/run/extract/close both sessions; raises SimulationError'
+});
+n('sim_error',  720, 750, 200, 40, 'simh', 'SimulationError', 'stage + original_error', {
+  inputs: ['stage: str', 'message: str', 'original_error (optional)'],
+  outputs: 'Exception',
+  logic: 'Custom exception tracking which stage failed + original error'
+});
+n('save_error',  80, 680, 260, 50, 'runsim','save_error_to_csv()', '\u2192 errors.csv', {
+  inputs: ['sim_id: int', 'stage: str', 'error: Exception', 'params: dict (optional)'],
+  outputs: 'None',
+  logic: 'Records error details + traceback + timestamp to errors.csv'
+});
+
+// ---- Row 5: CHARGE cluster ----
+n('set_charge',  50, 860, 310, 48, 'simh', 'set_charge_parameters()', 'Geometry, doping, contacts, monitor', {
+  inputs: ['charge_session', 'params: dict', 'charge_file_path: str'],
+  outputs: 'None',
+  logic: 'Sets geometry (w_r, h_si, S), doping, contacts, oxide, monitor on CHARGE objects'
+});
+n('run_charge',  50, 930, 290, 48, 'simh', 'run_charge_simulation()', 'Save \u2192 mesh \u2192 run solver \u2192 verify', {
+  inputs: ['charge_session'],
+  outputs: 'None',
+  logic: 'Save \u2192 mesh \u2192 run solver \u2192 verify results exist'
+});
+n('ext_charge',  50,1000, 320, 48, 'simh', 'extract_raw_charge_data()', 'getresult("total_charge") \u2192 flatten', {
+  inputs: ['charge_session'],
+  outputs: 'dict {V_drain, n, p} \u2014 flattened arrays',
+  logic: 'getresult("total_charge") \u2192 flatten all arrays'
+});
+
+// ---- Row 5: FDE cluster ----
+n('set_fde',    820, 860, 280, 48, 'simh', 'set_fde_parameters()', 'Geometry + wavelength', {
+  inputs: ['fde_session', 'params: dict'],
+  outputs: 'None',
+  logic: 'Sets geometry + wavelength on FDE objects'
+});
+n('imp_charge', 820, 930, 290, 48, 'simh', 'import_charge_data()', 'Import .mat charge data into FDE', {
+  inputs: ['fde_session', 'charge_file_path: str'],
+  outputs: 'None',
+  logic: 'Resolves path, selects np object, imports charge data via importdataset'
+});
+n('run_fde',   1180, 930, 260, 48, 'simh', 'run_fde_sweep()', 'Save \u2192 mesh \u2192 sweep \u2192 verify', {
+  inputs: ['fde_session'],
+  outputs: 'None',
+  logic: 'Save \u2192 mesh \u2192 runsweep \u2192 verify neff exists'
+});
+n('ext_optical',900,1000, 330, 48, 'simh', 'extract_raw_optical_data()', 'getsweepresult("neff") \u2192 squeeze', {
+  inputs: ['fde_session'],
+  outputs: 'dict {neff} \u2014 squeezed complex array',
+  logic: 'getsweepresult("voltage","neff") \u2192 np.squeeze'
+});
+
+// ---- Row 6: Processing ----
+n('proc_charge', 60,1130, 320, 56, 'dp', 'process_charge_data(V, n, p)', 'Q=e\u00b7n \u2192 C=dQ/dV \u2192 pF/cm', {
+  inputs: ['V_drain: array', 'n: array', 'p: array', 'sim_id: int (optional)'],
+  outputs: '(V, C_total_pF_cm) \u2014 tuple of arrays',
+  logic: 'Q = e\u00b7carriers \u2192 C = dQ/dV for e\u207b and h\u207a \u2192 sum \u2192 convert to pF/cm'
+});
+n('proc_optical',850,1130, 340, 56, 'dp', 'process_optical_data(neff, L, \u03bb)', 'Calls 4 calc functions below', {
+  inputs: ['neff: complex[]', 'length: float', 'wavelength: float', 'sim_id: int (optional)'],
+  outputs: '(d_neff, alpha, d_phi, v_pi, max_dphi) \u2014 tuple',
+  logic: 'Calls calc_dneff/alpha/dphi/v_pi, reconstructs V from config'
+});
+
+// ---- Row 7: Calc sub-functions ----
+n('calc_dneff', 760,1270, 220, 46, 'dp', 'calc_dneff(neff)', 'Re(neff \u2212 neff[0])', {
+  inputs: ['neff: complex[]'],
+  outputs: 'array \u2014 Re(neff \u2212 neff[0])',
+  logic: 'Real part of effective index change relative to V=0'
+});
+n('calc_alpha',1020,1270, 220, 46, 'dp', 'calc_alpha(neff, \u03bb)', '2k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e-2', {
+  inputs: ['neff: complex[] \u2014 effective index array from FDE sweep', 'wavelength: float \u2014 operating wavelength (m)'],
+  outputs: 'np.array \u2014 optical loss in dB/cm',
+  logic: 'Calculates k\u2080 = 2\u03c0/\u03bb, extracts Im(neff), applies conversion: 2\u00b7k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e-2'
+});
+n('calc_dphi', 1280,1270, 210, 46, 'dp', 'calc_dphi(\u0394n, L, \u03bb)', '2\u03c0\u00b7\u0394neff\u00b7L / \u03bb', {
+  inputs: ['d_neff: array', 'length: float', 'wavelength: float'],
+  outputs: 'array \u2014 phase shift (rad)',
+  logic: '\u0394\u03c6 = 2\u03c0\u00b7\u0394neff\u00b7L / \u03bb'
+});
+
+// ---- Row 8: V_pi ----
+n('calc_vpi',  1020,1360, 240, 46, 'dp', 'calculate_v_pi(V, |d\u03c6|)', 'interp(\u03c0, |d\u03c6|, V) or NaN', {
+  inputs: ['voltages: array', 'abs_dphi: array'],
+  outputs: 'float \u2014 V_pi or NaN',
+  logic: 'If max(|d\u03c6|) \u2265 \u03c0: interpolate voltage at \u03c0; else NaN'
+});
+
+// ---- Plotting (side) ----
+n('plot_cap',    60,1230, 250, 42, 'dp', 'plot_capacitance()', 'C vs V (if SHOW_PLOTS)', {
+  inputs: ['V: array', 'C_total_pF_cm: array'],
+  outputs: 'None (shows plot)',
+  logic: 'Matplotlib: C vs V with markers and grid'
+});
+n('plot_opt',   1300,1130, 270, 42, 'dp', 'plot_optical_results()', '3-panel plot (if SHOW_PLOTS)', {
+  inputs: ['V: array', 'd_neff: array', 'alpha: array', 'd_phi: array', 'v_pi: float (optional)'],
+  outputs: 'None (shows plot)',
+  logic: '3-subplot: \u0394neff, loss, phase vs V; \u00b1\u03c0 reference lines'
+});
+
+// ---- Row 9: Build result ----
+n('build',      640,1480, 380, 56, 'runsim','_build_result(...)', 'interp @ v_pi \u2192 loss, C, v_pi_l + cost + C_BASE check', {
+  inputs: ['sim_id', 'params', 'raw', 'V_cap', 'C', 'd_neff', 'alpha', 'd_phi', 'v_pi', 'max_dphi', 'total_time'],
+  outputs: 'dict \u2014 complete result',
+  logic: 'Interpolates loss/capacitance at v_pi, calculates cost, checks C_BASE, saves raw data'
+});
+
+// ---- Row 10: Cost + C_BASE + save raw ----
+n('calc_cost',  440,1610, 290, 56, 'cost', 'calculate_cost(\u03b1, v_pi_l, d\u03c6)', 'Success: w\u00b7(\u03b1/t)\u00b2+w\u00b7(v/t)\u00b2 | Penalty: C_BASE+\u03b2\u00b7(\u03c0\u2212d\u03c6)\u00b2', {
+  inputs: ['alpha: float', 'v_pi_l: float/None', 'max_dphi: float (optional)', 'weights: tuple (optional)', 'targets: tuple (optional)'],
+  outputs: 'float \u2014 negative cost',
+  logic: 'Success: w\u00b7(\u03b1/t)\u00b2 + w\u00b7(v/t)\u00b2; Penalty: C_BASE + \u03b2\u00b7(\u03c0 \u2212 d\u03c6)\u00b2'
+});
+n('upd_cbase',  860,1610, 330, 50, 'cost', 'update_c_base_if_needed(cost)', 'If cost > C_BASE \u2192 update + return True', {
+  inputs: ['new_valid_cost: float'],
+  outputs: 'bool \u2014 True if updated',
+  logic: 'If cost > C_BASE \u2192 update and return True (caller re-scores)'
+});
+n('save_raw',  1300,1480, 290, 50, 'runsim','save_raw_sweep_data()', '\u2192 raw/sim_{id}_raw.csv', {
+  inputs: ['sim_id: int', 'V: array', 'neff: array', 'alpha: array', 'd_phi: array', 'v_pi: float'],
+  outputs: 'None',
+  logic: 'Saves per-simulation raw sweep data to raw/sim_{id}_raw.csv'
+});
+
+// ---- Row 11: Save result + rescore + cooling ----
+n('save_result', 340,1740, 340, 50, 'runsim','save_single_result_to_csv()', 'Reorder columns, write minimal + full', {
+  inputs: ['filename: str', 'result: dict'],
+  outputs: 'None',
+  logic: 'Saves to both result.csv (minimal) and result_full.csv (all columns)'
+});
+n('rescore',     860,1730, 290, 50, 'runsim','_re_score_failed_rows()', 'Rewrite NaN-v_pi costs with new C_BASE', {
+  inputs: [],
+  outputs: 'None',
+  logic: 'Re-calculates cost for failed rows (NaN v_pi) using updated C_BASE'
+});
+n('cooling',    1280,1740, 240, 46, 'runsim','cooling_delay(skip)', 'Sleep DELAY_BETWEEN_RUNS seconds', {
+  inputs: ['skip: bool (optional)'],
+  outputs: 'None',
+  logic: 'Pauses DELAY_BETWEEN_RUNS seconds with countdown; skipped if \u22640 or skip=True'
+});
+
+// ---- Row 12: _save_to_csv ----
+n('save_csv1',  250,1850, 240, 44, 'runsim','_save_to_csv()', '\u2192 result.csv (13 key columns)', {
+  inputs: ['filename: str', 'result_df: DataFrame', 'columns: list (optional)'],
+  outputs: 'None',
+  logic: 'Appends single-row DataFrame to CSV, creates with header if new'
+});
+n('save_csv2',  550,1850, 260, 44, 'runsim','_save_to_csv()', '\u2192 result_full.csv (all columns)', {
+  inputs: ['filename: str', 'result_df: DataFrame', 'columns: list (optional)'],
+  outputs: 'None',
+  logic: 'Appends single-row DataFrame to CSV, creates with header if new'
+});
+n('debug_rs',    60,1850, 220, 44, 'runsim','debug_prompt()', 'If DEBUG: confirm save', {
+  inputs: ['message: str'],
+  outputs: 'bool',
+  logic: 'Same as debug_prompt \u2014 confirm/skip in DEBUG mode'
+});
+
+// ---- Row 13: CSV files ----
+n('f_result',   250,1960, 150, 38, 'file', 'result.csv');
+n('f_full',     550,1960, 180, 38, 'file', 'result_full.csv');
+n('f_errors',    80,1960, 150, 38, 'file', 'errors.csv');
+n('f_raw',     1300,1960, 190, 38, 'file', 'raw/sim_N.csv');
+
+// ---- Cost helper accessors ----
+n('get_cbase',  1280,1610, 240, 42, 'cost', 'get_c_base()', 'Returns current _C_BASE', {
+  inputs: [],
+  outputs: 'float \u2014 current C_BASE',
+  logic: 'Returns module-level _C_BASE'
+});
+n('reset_cbase',1280,1666, 240, 42, 'cost', 'reset_c_base()', 'Reset to config default', {
+  inputs: [],
+  outputs: 'None',
+  logic: 'Resets _C_BASE to config default'
+});
+n('update_cb',  1280,1722, 240, 42, 'cost', 'update_c_base(val)', 'Set _C_BASE, recompute \u03b2', {
+  inputs: ['value: float'],
+  outputs: 'None',
+  logic: 'Sets _C_BASE, recomputes \u03b2 = 9\u00b7C_BASE/\u03c0\u00b2'
+});
+
+
+// ===================== EDGES =====================
+
+const edges = [];
+function e(from,to,label,opts){edges.push({from,to,label:label||'',dash:opts?.dash||false,color:opts?.color||'#64748b',exitSide:opts?.exit,enterSide:opts?.enter,exitOff:opts?.exitOff||0,enterOff:opts?.enterOff||0});}
+
+// main → children
+e('main','lhs','Stage 1');
+e('main','c_base_boot','Stage 2b');
+e('main','train','Stage 3',{exit:'right',enter:'top'});
+e('main','setup_log','',{exit:'right',enter:'left'});
+
+// LHS → params.csv → run_init
+e('lhs','f_params','');
+e('f_params','run_init','read');
+e('run_init','run_row','for each row',{exit:'right',enter:'left'});
+e('run_init','log_result','',{exit:'bottom',enter:'top'});
+
+// BO flow
+e('train','suggest','optimizer');
+e('suggest','run_row','next_params',{exit:'left',enter:'right'});
+e('main','get_best','Stage 4 best',{exit:'right',enter:'top',exitOff:60});
+
+// run_row internals
+e('run_row','full_sim','params');
+e('full_sim','save_error','SimulationError',{exit:'left',enter:'right',color:'#dc2626'});
+e('full_sim','set_charge','CHARGE',{exit:'bottom',enter:'top',exitOff:-100});
+e('full_sim','set_fde','FDE',{exit:'bottom',enter:'top',exitOff:80});
+e('set_charge','run_charge','');
+e('run_charge','ext_charge','');
+e('set_fde','imp_charge','');
+e('imp_charge','run_fde','',{exit:'right',enter:'left'});
+e('run_fde','ext_optical','',{exit:'bottom',enter:'top',exitOff:-40});
+e('imp_charge','ext_optical','',{exit:'bottom',enter:'top',exitOff:60});
+
+// Raw data → processing
+e('ext_charge','proc_charge','{V_drain, n, p}');
+e('ext_optical','proc_optical','{neff[]}');
+
+// Processing sub-calls
+e('proc_optical','calc_dneff','neff',{exit:'bottom',enter:'top',exitOff:-80});
+e('proc_optical','calc_alpha','neff',{exit:'bottom',enter:'top'});
+e('proc_optical','calc_dphi','d_neff',{exit:'bottom',enter:'top',exitOff:80});
+e('calc_dneff','calc_dphi','d_neff[]',{exit:'right',enter:'left'});
+e('calc_dphi','calc_vpi','|d_phi|[]');
+e('calc_alpha','calc_vpi','',{exit:'bottom',enter:'top',enterOff:-40});
+
+// Plotting
+e('proc_charge','plot_cap','',{exit:'bottom',enter:'top'});
+e('proc_optical','plot_opt','',{exit:'right',enter:'left'});
+
+// Processing → build
+e('proc_charge','build','V_cap, C_pF_cm',{exit:'bottom',enter:'left',exitOff:60});
+e('calc_vpi','build','v_pi, max_dphi',{exit:'bottom',enter:'right',exitOff:-40});
+
+// Build → cost + saves
+e('build','calc_cost','α, v_pi_l, max_dφ',{exit:'bottom',enter:'top',exitOff:-60});
+e('build','upd_cbase','if valid & cost > C_BASE',{exit:'bottom',enter:'top',exitOff:60});
+e('build','save_raw','V, neff, α, dφ',{exit:'right',enter:'left'});
+
+// Cost → C_BASE update chain
+e('upd_cbase','rescore','if changed');
+e('upd_cbase','update_cb','calls',{exit:'right',enter:'left'});
+
+// Save flow
+e('run_row','save_result','result_dict',{exit:'bottom',enter:'top',exitOff:-80});
+e('run_row','cooling','',{exit:'bottom',enter:'top',exitOff:100});
+e('save_result','save_csv1','MINIMAL_COLS');
+e('save_result','save_csv2','ALL_COLS');
+
+// CSV file outputs
+e('save_csv1','f_result','');
+e('save_csv2','f_full','');
+e('save_error','f_errors','');
+e('save_raw','f_raw','');
+
+// Feedback: result.csv → BO (dashed)
+e('f_result','train','read cost col',{dash:true,exit:'top',enter:'bottom',color:'#0891b2'});
+e('f_result','get_best','read',{dash:true,exit:'top',enter:'bottom',color:'#0891b2'});
+e('f_result','c_base_boot','read',{dash:true,exit:'top',enter:'bottom',color:'#d97706'});
+e('f_result','rescore','read/write',{dash:true,exit:'right',enter:'bottom',color:'#d97706'});
+
+
+// ===================== RENDER =====================
+
+const svgEl = document.getElementById('svg');
+const wrap = document.getElementById('canvas-wrap');
+
+// Compute bounding box
+let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+for(const k in N){const n=N[k];minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x+n.w);maxY=Math.max(maxY,n.y+n.h);}
+const PAD=80;
+const CW=maxX+PAD*2, CH=maxY+PAD*2;
+
+svgEl.setAttribute('viewBox',`${minX-PAD} ${minY-PAD} ${CW} ${CH}`);
+svgEl.setAttribute('width', CW);
+svgEl.setAttribute('height', CH);
+
+// Grid dots background
+const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+defs.innerHTML = `
+<marker id="ah" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/></marker>
+<marker id="ah-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+<marker id="ah-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#0891b2"/></marker>
+<marker id="ah-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#d97706"/></marker>
+<pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r="1" fill="#cbd5e1"/></pattern>
+`;
+svgEl.appendChild(defs);
+
+// Background
+const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+bg.setAttribute('x',minX-PAD); bg.setAttribute('y',minY-PAD);
+bg.setAttribute('width',CW); bg.setAttribute('height',CH);
+bg.setAttribute('fill','url(#dots)');
+svgEl.appendChild(bg);
+
+// Group zones (labels)
+function addZone(x,y,w,h,label,color){
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+  const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x',x);r.setAttribute('y',y);r.setAttribute('width',w);r.setAttribute('height',h);
+  r.setAttribute('rx','12');r.setAttribute('fill',color);r.setAttribute('opacity','0.35');r.setAttribute('stroke',color.replace('0.08','0.15'));
+  g.appendChild(r);
+  const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+  t.setAttribute('x',x+12);t.setAttribute('y',y+18);t.setAttribute('font-size','11');t.setAttribute('fill','#64748b');
+  t.setAttribute('font-weight','700');t.setAttribute('letter-spacing','0.5');t.textContent=label;
+  g.appendChild(t);
+  svgEl.appendChild(g);
+}
+
+addZone(30, 835, 400, 230, 'CHARGE (Electrical)', '#fef2f2');
+addZone(790, 835, 680, 230, 'FDE (Optical)', '#fef2f2');
+addZone(30, 1100, 400, 200, 'CHARGE PROCESSING', '#f5f3ff');
+addZone(720, 1100, 820, 330, 'OPTICAL PROCESSING', '#f5f3ff');
+addZone(400, 1580, 200, 110, 'COST', '#fffbeb');
+addZone(1240, 1580, 310, 200, 'C_BASE STATE', '#fffbeb');
+
+// Draw edges
+function getPort(node, side, off){
+  const cx=node.x+node.w/2+(off||0), cy=node.y+node.h/2;
+  switch(side){
+    case 'top':    return {x:cx, y:node.y};
+    case 'bottom': return {x:cx, y:node.y+node.h};
+    case 'left':   return {x:node.x, y:cy};
+    case 'right':  return {x:node.x+node.w, y:cy};
+  }
+}
+
+function autoSides(a,b){
+  const acx=a.x+a.w/2, acy=a.y+a.h/2, bcx=b.x+b.w/2, bcy=b.y+b.h/2;
+  const dx=bcx-acx, dy=bcy-acy;
+  if(Math.abs(dy)>Math.abs(dx)){
+    return dy>0?['bottom','top']:['top','bottom'];
+  } else {
+    return dx>0?['right','left']:['left','right'];
+  }
+}
+
+function markerFor(color){
+  if(color==='#dc2626') return 'url(#ah-red)';
+  if(color==='#0891b2') return 'url(#ah-cyan)';
+  if(color==='#d97706') return 'url(#ah-amber)';
+  return 'url(#ah)';
+}
+
+const edgeGroup = document.createElementNS('http://www.w3.org/2000/svg','g');
+svgEl.appendChild(edgeGroup);
+
+edges.forEach(ed=>{
+  const a=N[ed.from], b=N[ed.to];
+  if(!a||!b) return;
+  let [es,ns] = autoSides(a,b);
+  if(ed.exitSide) es=ed.exitSide;
+  if(ed.enterSide) ns=ed.enterSide;
+  const p1=getPort(a,es,ed.exitOff);
+  const p2=getPort(b,ns,ed.enterOff);
+
+  // Build smooth cubic bezier
+  let d;
+  const dx=p2.x-p1.x, dy=p2.y-p1.y;
+  if((es==='bottom'&&ns==='top')||(es==='top'&&ns==='bottom')){
+    const cy1=p1.y+dy*0.45, cy2=p1.y+dy*0.55;
+    d=`M${p1.x},${p1.y} C${p1.x},${cy1} ${p2.x},${cy2} ${p2.x},${p2.y}`;
+  } else if((es==='right'&&ns==='left')||(es==='left'&&ns==='right')){
+    const cx1=p1.x+dx*0.45, cx2=p1.x+dx*0.55;
+    d=`M${p1.x},${p1.y} C${cx1},${p1.y} ${cx2},${p2.y} ${p2.x},${p2.y}`;
+  } else {
+    // Mixed: e.g. bottom→left
+    const mid = es==='bottom'||es==='top' ?
+      `C${p1.x},${p1.y+dy*0.6} ${p2.x-dx*0.1},${p2.y} ${p2.x},${p2.y}` :
+      `C${p1.x+dx*0.6},${p1.y} ${p2.x},${p2.y-dy*0.1} ${p2.x},${p2.y}`;
+    d=`M${p1.x},${p1.y} ${mid}`;
+  }
+
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d',d);
+  path.setAttribute('fill','none');
+  path.setAttribute('stroke',ed.color);
+  path.setAttribute('stroke-width','1.5');
+  path.setAttribute('marker-end',markerFor(ed.color));
+  if(ed.dash) path.setAttribute('stroke-dasharray','6,4');
+  edgeGroup.appendChild(path);
+
+  // Label at midpoint
+  if(ed.label){
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+    const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
+    lbl.setAttribute('x',mx); lbl.setAttribute('y',my-5);
+    lbl.setAttribute('text-anchor','middle');
+    lbl.setAttribute('font-size','9');
+    lbl.setAttribute('font-family','Consolas, monospace');
+    lbl.setAttribute('fill','#475569');
+    // background rect
+    const bg2=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    const tw=ed.label.length*5.5+8;
+    bg2.setAttribute('x',mx-tw/2); bg2.setAttribute('y',my-14);
+    bg2.setAttribute('width',tw); bg2.setAttribute('height',13);
+    bg2.setAttribute('rx','3'); bg2.setAttribute('fill','#f8fafc'); bg2.setAttribute('opacity','0.9');
+    edgeGroup.appendChild(bg2);
+    lbl.textContent=ed.label;
+    edgeGroup.appendChild(lbl);
+  }
+});
+
+// Draw nodes
+const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg','g');
+svgEl.appendChild(nodeGroup);
+
+const modNames={main:'MAIN.PY',runsim:'RUN_SIMULATION.PY',simh:'SIM_HANDLER.PY',dp:'DATA_PROCESSOR.PY',cost:'COST.PY',bo:'BO.PY',lhs:'LHS.PY'};
+const nodeEls = {}; // id → { group, box }
+
+for(const k in N){
+  const nd=N[k];
+  const m=MOD[nd.mod];
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('data-node-id', nd.id);
+  if(nd.details) g.style.cursor='pointer';
+
+  // Shadow
+  const sh=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  sh.setAttribute('x',nd.x+1);sh.setAttribute('y',nd.y+2);sh.setAttribute('width',nd.w);sh.setAttribute('height',nd.h);
+  sh.setAttribute('rx','8');sh.setAttribute('fill','rgba(0,0,0,0.06)');
+  g.appendChild(sh);
+
+  // Box
+  const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x',nd.x);r.setAttribute('y',nd.y);r.setAttribute('width',nd.w);r.setAttribute('height',nd.h);
+  r.setAttribute('rx','8');r.setAttribute('fill',m.fill);r.setAttribute('stroke',m.stroke);r.setAttribute('stroke-width','2');
+  g.appendChild(r);
+
+  // Module tag
+  if(nd.mod!=='file'){
+    const mt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    mt.setAttribute('x',nd.x+10);mt.setAttribute('y',nd.y+13);
+    mt.setAttribute('font-size','8');mt.setAttribute('font-weight','700');mt.setAttribute('fill',m.text);
+    mt.setAttribute('opacity','0.7');mt.setAttribute('letter-spacing','0.3');
+    mt.textContent=modNames[nd.mod]||'';
+    g.appendChild(mt);
+  }
+
+  // Function name
+  const fn=document.createElementNS('http://www.w3.org/2000/svg','text');
+  const nameY = nd.mod==='file' ? nd.y+nd.h/2+1 : nd.y + (nd.sub ? nd.h*0.5 : nd.h*0.55);
+  fn.setAttribute('x',nd.x+nd.w/2);fn.setAttribute('y',nameY);
+  fn.setAttribute('text-anchor','middle');
+  fn.setAttribute('font-size', nd.mod==='file'?'11':'12');
+  fn.setAttribute('font-weight','700');
+  fn.setAttribute('font-family','Consolas, "SF Mono", monospace');
+  fn.setAttribute('fill',nd.mod==='file'?m.text:'#1e293b');
+  fn.textContent=nd.label;
+  g.appendChild(fn);
+
+  // Sub description
+  if(nd.sub){
+    const sd=document.createElementNS('http://www.w3.org/2000/svg','text');
+    sd.setAttribute('x',nd.x+nd.w/2);sd.setAttribute('y',nameY+13);
+    sd.setAttribute('text-anchor','middle');
+    sd.setAttribute('font-size','9');sd.setAttribute('fill','#64748b');
+    // Truncate if too long
+    const maxChars = Math.floor(nd.w / 5.2);
+    sd.textContent = nd.sub.length > maxChars ? nd.sub.slice(0,maxChars-1)+'...' : nd.sub;
+    g.appendChild(sd);
+  }
+
+  nodeGroup.appendChild(g);
+  nodeEls[nd.id] = { group: g, box: r };
+}
+
+
+// ===================== DETAIL PANEL =====================
+
+const panel = document.getElementById('detail-panel');
+let selectedNode = null;
+
+function selectNode(id) {
+  const nd = N[id];
+  if (!nd || !nd.details) return;
+  selectedNode = id;
+  const m = MOD[nd.mod];
+
+  // Header
+  const modTag = document.getElementById('dp-mod-tag');
+  modTag.textContent = modNames[nd.mod] || nd.mod.toUpperCase();
+  modTag.style.background = m.fill;
+  modTag.style.color = m.text;
+  modTag.style.border = '1px solid ' + m.stroke;
+
+  document.getElementById('dp-fn-name').textContent = nd.label;
+  document.getElementById('dp-sub').textContent = nd.sub;
+
+  // Header colored bar
+  document.querySelector('#detail-panel .dp-header').style.borderBottom = '3px solid ' + m.stroke;
+
+  // Inputs
+  const inputsSec = document.getElementById('dp-inputs-sec');
+  const inputsUl = document.getElementById('dp-inputs');
+  inputsUl.innerHTML = '';
+  if (nd.details.inputs && nd.details.inputs.length > 0) {
+    inputsSec.style.display = '';
+    nd.details.inputs.forEach(inp => {
+      const li = document.createElement('li');
+      li.textContent = inp;
+      inputsUl.appendChild(li);
+    });
+  } else {
+    inputsSec.style.display = 'none';
+  }
+
+  // Output
+  const outputSec = document.getElementById('dp-output-sec');
+  const outputP = document.getElementById('dp-output');
+  if (nd.details.outputs) {
+    outputSec.style.display = '';
+    outputP.textContent = nd.details.outputs;
+  } else {
+    outputSec.style.display = 'none';
+  }
+
+  // Logic
+  const logicSec = document.getElementById('dp-logic-sec');
+  const logicP = document.getElementById('dp-logic');
+  if (nd.details.logic) {
+    logicSec.style.display = '';
+    logicP.textContent = nd.details.logic;
+  } else {
+    logicSec.style.display = 'none';
+  }
+
+  // Connections (auto-derived from edges)
+  const connDiv = document.getElementById('dp-connections');
+  connDiv.innerHTML = '';
+  const incoming = edges.filter(e => e.to === id);
+  const outgoing = edges.filter(e => e.from === id);
+
+  if (incoming.length === 0 && outgoing.length === 0) {
+    document.getElementById('dp-conn-sec').style.display = 'none';
+  } else {
+    document.getElementById('dp-conn-sec').style.display = '';
+    incoming.forEach(e => {
+      const src = N[e.from];
+      if (!src) return;
+      const row = document.createElement('div');
+      row.className = 'dp-conn-row';
+      const arrow = document.createElement('span');
+      arrow.className = 'dp-conn-arrow';
+      arrow.textContent = '\u2190';
+      row.appendChild(arrow);
+      const lbl = document.createElement('span');
+      lbl.textContent = 'from ';
+      row.appendChild(lbl);
+      const link = document.createElement('span');
+      link.className = 'dp-conn-link';
+      link.textContent = src.label;
+      link.onclick = () => selectNode(e.from);
+      row.appendChild(link);
+      if (e.label) {
+        const edgeLbl = document.createElement('span');
+        edgeLbl.style.cssText = 'color:#94a3b8;font-size:10px;margin-left:4px';
+        edgeLbl.textContent = '(' + e.label + ')';
+        row.appendChild(edgeLbl);
+      }
+      connDiv.appendChild(row);
+    });
+    outgoing.forEach(e => {
+      const tgt = N[e.to];
+      if (!tgt) return;
+      const row = document.createElement('div');
+      row.className = 'dp-conn-row';
+      const arrow = document.createElement('span');
+      arrow.className = 'dp-conn-arrow';
+      arrow.textContent = '\u2192';
+      row.appendChild(arrow);
+      const lbl = document.createElement('span');
+      lbl.textContent = 'to ';
+      row.appendChild(lbl);
+      const link = document.createElement('span');
+      link.className = 'dp-conn-link';
+      link.textContent = tgt.label;
+      link.onclick = () => selectNode(e.to);
+      row.appendChild(link);
+      if (e.label) {
+        const edgeLbl = document.createElement('span');
+        edgeLbl.style.cssText = 'color:#94a3b8;font-size:10px;margin-left:4px';
+        edgeLbl.textContent = '(' + e.label + ')';
+        row.appendChild(edgeLbl);
+      }
+      connDiv.appendChild(row);
+    });
+  }
+
+  // Open panel
+  panel.classList.add('open');
+
+  // Highlight selected node, dim others
+  const connected = new Set([id]);
+  incoming.forEach(e => connected.add(e.from));
+  outgoing.forEach(e => connected.add(e.to));
+
+  for (const nid in nodeEls) {
+    const el = nodeEls[nid];
+    if (nid === id) {
+      el.box.setAttribute('stroke-width', '3');
+      el.box.setAttribute('filter', 'drop-shadow(0 0 6px ' + MOD[N[nid].mod].stroke + ')');
+      el.group.style.opacity = '1';
+    } else if (connected.has(nid)) {
+      el.box.setAttribute('stroke-width', '2');
+      el.box.removeAttribute('filter');
+      el.group.style.opacity = '1';
+    } else {
+      el.box.setAttribute('stroke-width', '2');
+      el.box.removeAttribute('filter');
+      el.group.style.opacity = '0.3';
+    }
+  }
+}
+
+function closePanel() {
+  panel.classList.remove('open');
+  selectedNode = null;
+  // Reset all node highlights
+  for (const nid in nodeEls) {
+    const el = nodeEls[nid];
+    el.box.setAttribute('stroke-width', '2');
+    el.box.removeAttribute('filter');
+    el.group.style.opacity = '1';
+  }
+}
+
+// Click handlers on nodes
+for (const nid in nodeEls) {
+  const el = nodeEls[nid];
+  el.group.addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (N[nid].details) selectNode(nid);
+  });
+}
+
+// Close panel: X button, Escape, canvas background click
+document.getElementById('dp-close').addEventListener('click', closePanel);
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && selectedNode) closePanel();
+});
+
+// Close on canvas background click (only if not dragging)
+let clickStart = null;
+wrap.addEventListener('mousedown', ev => { clickStart = { x: ev.clientX, y: ev.clientY }; });
+wrap.addEventListener('mouseup', ev => {
+  if (!clickStart) return;
+  const dx = Math.abs(ev.clientX - clickStart.x);
+  const dy = Math.abs(ev.clientY - clickStart.y);
+  // Only close if it was a click (not a drag) on the background
+  if (dx < 5 && dy < 5 && selectedNode && (ev.target === svgEl || ev.target === bg)) {
+    closePanel();
+  }
+  clickStart = null;
+});
+
+
+// ===================== PAN & ZOOM =====================
+
+let scale=1, tx=0, ty=0;
+let dragging=false, dragX=0, dragY=0;
+
+function applyTransform(){
+  svgEl.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+  svgEl.style.transformOrigin='0 0';
+  document.getElementById('zoom-label').textContent=Math.round(scale*100)+'%';
+}
+
+function fitToScreen(){
+  const vw=wrap.clientWidth, vh=wrap.clientHeight;
+  const sx=vw/CW, sy=vh/CH;
+  scale=Math.min(sx,sy)*0.92;
+  tx=(vw-CW*scale)/2;
+  ty=(vh-CH*scale)/2;
+  applyTransform();
+}
+
+wrap.addEventListener('mousedown',ev=>{
+  if(ev.button!==0)return;
+  dragging=true; dragX=ev.clientX-tx; dragY=ev.clientY-ty;
+  wrap.classList.add('grabbing');
+});
+window.addEventListener('mousemove',ev=>{
+  if(!dragging)return;
+  tx=ev.clientX-dragX; ty=ev.clientY-dragY;
+  applyTransform();
+});
+window.addEventListener('mouseup',()=>{dragging=false;wrap.classList.remove('grabbing');});
+
+wrap.addEventListener('wheel',ev=>{
+  ev.preventDefault();
+  const rect=wrap.getBoundingClientRect();
+  const mx=ev.clientX-rect.left, my=ev.clientY-rect.top;
+  const d=ev.deltaY>0?0.9:1.1;
+  const ns=Math.max(0.15,Math.min(4,scale*d));
+  // Zoom toward cursor
+  tx=mx-(mx-tx)*(ns/scale);
+  ty=my-(my-ty)*(ns/scale);
+  scale=ns;
+  applyTransform();
+},{passive:false});
+
+document.getElementById('btn-zin').onclick=()=>{scale=Math.min(4,scale*1.2);applyTransform()};
+document.getElementById('btn-zout').onclick=()=>{scale=Math.max(0.15,scale/1.2);applyTransform()};
+document.getElementById('btn-fit').onclick=fitToScreen;
+document.getElementById('btn-reset').onclick=()=>{scale=1;tx=0;ty=0;applyTransform()};
+
+// Initial fit
+fitToScreen();
+
+</script>
+</body>
+</html>
