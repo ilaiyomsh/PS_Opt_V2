@@ -4,6 +4,7 @@
 
 import sys
 import os
+import pytest
 
 # Get project root (PS_Opt_V2) - go up 2 levels from this file
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,10 +21,9 @@ import data_processor
 import numpy as np
 import pandas as pd
 
-# lumapi is now imported by sim_handler
+# Skip entire module if lumapi is not available
 if sim_handler.lumapi is None:
-    print("[ERROR] lumapi not found. Make sure Lumerical is installed.")
-    sys.exit(1)
+    pytest.skip("lumapi not found — Lumerical not installed", allow_module_level=True)
 lumapi = sim_handler.lumapi
 
 # Output CSV file

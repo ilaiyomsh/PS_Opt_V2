@@ -134,6 +134,7 @@ def main():
 
     # Setup logging
     log_path = setup_logging()
+    config.RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = datetime.now()
 
     log_raw("=" * 80)
@@ -147,6 +148,9 @@ def main():
     log_raw(f"  - HIDE_GUI: {config.HIDE_GUI}")
     log_raw(f"  - DEBUG: {config.DEBUG}")
     log_raw(f"  - Delay Between Runs: {config.DELAY_BETWEEN_RUNS} seconds")
+    log_raw(f"  - TARGETS: {config.TARGETS}")
+    log_raw(f"  - FOM_WEIGHTS: {config.FOM_WEIGHTS}")
+    log_raw(f"  - BO_KAPPA: {config.BO_KAPPA}")
     log_raw(f"  - Log file: {log_path}")
     log_raw("")
 

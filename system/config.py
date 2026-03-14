@@ -28,6 +28,7 @@ RESULTS_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "result.csv")  # Minimal res
 RESULTS_FULL_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "result_full.csv")  # Full results CSV
 ERRORS_CSV_FILE = os.path.join(SIMULATION_CSV_DIR, "errors.csv")  # Errors CSV file
 RAW_OUTPUT_DIR = os.path.join(SIMULATION_CSV_DIR, "raw")  # Raw per-simulation sweep data
+RUN_TIMESTAMP = None  # Set at runtime by main.py
 
 # Columns for minimal result file (essential data only)
 MINIMAL_RESULT_COLUMNS = [

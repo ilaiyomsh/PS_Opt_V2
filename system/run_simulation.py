@@ -116,27 +116,6 @@ def save_error_to_csv(sim_id, stage, error, params=None):
     print(f"  -> Error for sim_id {sim_id} (stage: {stage}) saved to {config.ERRORS_CSV_FILE}")
 
 
-def save_raw_sweep_data(sim_id, V, neff, alpha_dB_per_cm, d_phi, v_pi):
-    """Saves raw voltage-sweep data to individual CSV file."""
-    os.makedirs(config.RAW_OUTPUT_DIR, exist_ok=True)
-
-    v_pi_col = np.full(len(V), np.nan)
-    v_pi_col[0] = v_pi
-
-    df = pd.DataFrame({
-        'voltage': V,
-        'neff_real': np.real(neff),
-        'neff_imag': np.imag(neff),
-        'neff_complex': [f"{val.real}+{val.imag}j" for val in neff],
-        'alpha_dB_per_cm': alpha_dB_per_cm,
-        'D_phi': d_phi,
-        'v_pi': v_pi_col
-    })
-
-    filename = os.path.join(config.RAW_OUTPUT_DIR, f"sim_{sim_id}_raw.csv")
-    df.to_csv(filename, index=False)
-    print(f"  -> Raw sweep data saved to {filename}")
-
 
 # ============================================================================
 # C_BASE Maintenance
@@ -300,7 +279,7 @@ def run_row(row, sim_id=None, is_last=False):
 
     # 1. Run simulation
     try:
-        raw = sim_handler.run_full_simulation(params, sim_id=sim_id)
+        raw_df, raw_csv_path, timing = sim_handler.run_full_simulation(params, sim_id=sim_id)
     except sim_handler.SimulationError as e:
         save_error_to_csv(sim_id, e.stage, e.original_error or e, params)
         return None
@@ -308,34 +287,42 @@ def run_row(row, sim_id=None, is_last=False):
     # 2. Process data
     try:
         V_cap, C_total_pF_cm = data_processor.process_charge_data(
-            raw['V_drain'], raw['n'], raw['p'])
+            raw_df['V'].values, raw_df['n'].values, raw_df['p'].values)
+
+        neff = raw_df['neff_re'].values + 1j * raw_df['neff_im'].values
         d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi = data_processor.process_optical_data(
-            raw['neff'], float(params['length']), float(params['lambda']))
+            neff, float(params['length']), float(params['lambda']))
     except Exception as e:
         save_error_to_csv(sim_id, "DATA_PROCESSING", e, params)
         return None
 
-    # 3. Calculate derived metrics
+    # 3. Update raw CSV with processed columns
+    raw_df['d_neff'] = d_neff
+    raw_df['d_phi'] = d_phi
+    raw_df['C_total_pF_cm'] = C_total_pF_cm
+    raw_df.to_csv(raw_csv_path, index=False)
+
+    # 4. Calculate derived metrics
     try:
         result = _build_result(
-            sim_id, params, raw, V_cap, C_total_pF_cm,
+            sim_id, params, timing, V_cap, C_total_pF_cm,
             d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi,
             time.time() - sim_start_time)
     except Exception as e:
         save_error_to_csv(sim_id, "RESULTS_CALC", e, params)
         return None
 
-    # 4. Save result
+    # 5. Save result
     if debug_prompt("Ready to save result to CSV"):
         save_single_result_to_csv(config.RESULTS_CSV_FILE, result)
 
-    # 5. Cooling delay
+    # 6. Cooling delay
     cooling_delay(skip=is_last)
 
     return result
 
 
-def _build_result(sim_id, params, raw, V_cap, C_total_pF_cm,
+def _build_result(sim_id, params, timing, V_cap, C_total_pF_cm,
                   d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi, total_time):
     """Builds the result dict from processed data."""
     V_fde = np.linspace(0, config.V_MAX, len(d_neff))
@@ -371,11 +358,6 @@ def _build_result(sim_id, params, raw, V_cap, C_total_pF_cm,
     if is_valid and cost_module.update_c_base_if_needed(cost_value):
         _re_score_failed_rows()
 
-    # Save raw sweep data
-    neff = raw['neff']
-    V_sweep = np.linspace(0, config.V_MAX, len(neff))
-    save_raw_sweep_data(sim_id, V_sweep, neff, alpha_dB_per_cm, d_phi, v_pi)
-
     # Print summary
     if is_valid:
         print(f"\n  Result: V_pi*L = {v_pi_l:.4f} V*mm, Loss = {loss_at_v_pi:.2f} dB/cm, C = {C_at_v_pi:.2f} pF/cm")
@@ -383,7 +365,7 @@ def _build_result(sim_id, params, raw, V_cap, C_total_pF_cm,
     else:
         print(f"\n  Result: V_pi not reached (max_dphi={max_dphi:.2f} rad)")
         print(f"  Cost: PENALTY ({cost_value:.4f})")
-    print(f"  Timing: CHARGE={raw.get('charge_time', 0):.1f}s, FDE={raw.get('fde_time', 0):.1f}s, Total={total_time:.1f}s")
+    print(f"  Timing: CHARGE={timing.get('charge_time', 0):.1f}s, FDE={timing.get('fde_time', 0):.1f}s, Total={total_time:.1f}s")
 
     return {
         'sim_id': sim_id,
@@ -397,8 +379,8 @@ def _build_result(sim_id, params, raw, V_cap, C_total_pF_cm,
         'norm_loss': norm_loss,
         'norm_vpil': norm_vpil,
         'cost': cost_value,
-        'charge_time_s': raw.get('charge_time', 0),
-        'fde_time_s': raw.get('fde_time', 0),
+        'charge_time_s': timing.get('charge_time', 0),
+        'fde_time_s': timing.get('fde_time', 0),
         'total_time_s': total_time,
         'intrinsic_width_m': w_r + 2 * S,
         'loss_min_dB_per_cm': np.min(alpha_dB_per_cm),

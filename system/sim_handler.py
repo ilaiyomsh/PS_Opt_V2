@@ -7,6 +7,7 @@ import time
 import os
 import config
 import numpy as np
+import pandas as pd
 
 # Import lumapi at module level (only sim_handler touches lumapi)
 sys.path.append(config.LUMERICAL_API_PATH)
@@ -557,4 +558,20 @@ def run_full_simulation(params, sim_id=None):
             except Exception:
                 pass
 
-    return result
+    # Build combined DataFrame (charge + optical on shared V axis)
+    raw_df = pd.DataFrame({
+        'V': result['V_drain'].flatten(),
+        'n': result['n'].flatten(),
+        'p': result['p'].flatten(),
+        'neff_re': np.real(result['neff']).flatten(),
+        'neff_im': np.imag(result['neff']).flatten()
+    })
+
+    # Save raw CSV
+    run_dir = os.path.join(config.RAW_OUTPUT_DIR, f"{config.RUN_TIMESTAMP}_result")
+    os.makedirs(run_dir, exist_ok=True)
+    raw_csv_path = os.path.join(run_dir, f"{config.RUN_TIMESTAMP}_sim_{sim_id}.csv")
+    raw_df.to_csv(raw_csv_path, index=False)
+
+    timing = {'charge_time': result['charge_time'], 'fde_time': result['fde_time']}
+    return raw_df, raw_csv_path, timing

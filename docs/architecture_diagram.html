@@ -395,9 +395,11 @@ e('imp_charge','run_fde','',{exit:'right',enter:'left'});
 e('run_fde','ext_optical','',{exit:'bottom',enter:'top',exitOff:-40});
 e('imp_charge','ext_optical','',{exit:'bottom',enter:'top',exitOff:60});
 
-// Raw data → processing
-e('ext_charge','proc_charge','{V_drain, n, p}');
-e('ext_optical','proc_optical','{neff[]}');
+// Raw data → run_row → processing (sim_handler returns raw data to run_row, which calls data_processor)
+e('ext_charge','run_row','{V_drain, n, p}',{exit:'top',enter:'bottom',exitOff:-40,enterOff:-80});
+e('ext_optical','run_row','{neff[]}',{exit:'top',enter:'bottom',exitOff:0,enterOff:80});
+e('run_row','proc_charge','V, n, p',{exit:'bottom',enter:'top',exitOff:-160});
+e('run_row','proc_optical','neff, L, λ',{exit:'bottom',enter:'top',exitOff:80});
 
 // Processing sub-calls
 e('proc_optical','calc_dneff','neff',{exit:'bottom',enter:'top',exitOff:-80});

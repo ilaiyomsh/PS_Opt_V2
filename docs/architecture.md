@@ -38,132 +38,530 @@
 | **`BO.py`** | Bayesian Optimization -- reads stored cost from CSV, no re-scoring | No | Yes (reads CSV) |
 | **`main.py`** | Entry point, BO loop, C_BASE bootstrap at startup | No | No |
 
-## Data Flow
+---
+
+## Function-Level Data Flow Diagram
+
+Every box is a function. Arrows show calls and what data flows between them.
 
 ```
-run_row(params)
-|
-+- 1. Simulation (one call)
-|     |
-|     v
-|   sim_handler.run_full_simulation(params)
-|     |
-|     +- CHARGE: open session -> set params -> run -> extract raw data -> close
-|     |          returns: V_drain[], n[], p[]
-|     |
-|     +- FDE: open session -> set params -> import charge -> run sweep -> extract raw data -> close
-|             returns: neff[]
-|     |
-|     +- Returns: { V_drain, n, p, neff, charge_time, fde_time }
-|
-+- 2. Processing (two calls)
-|     |
-|     +- data_processor.process_charge_data(V_drain, n, p)
-|     |   Returns: (V_cap, C_total_pF_cm)
-|     |
-|     +- data_processor.process_optical_data(neff, length, wavelength)
-|         Returns: (d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi)
-|
-+- 3. Cost calculation + C_BASE check
-|     |
-|     +- cost.calculate_cost(alpha, v_pi_l, max_dphi)
-|     |   Returns: negative cost for BayesOpt
-|     |
-|     +- If valid run & cost > C_BASE:
-|           cost.update_c_base_if_needed(positive_cost)
-|           _re_score_failed_rows()
-|
-+- 4. Save results (CSV I/O)
-|     +- save_raw_sweep_data(...)
-|     +- save_single_result_to_csv(...)
-|
-+- 5. Cooling delay
+ +==========================================================================+
+ |                            main.py::main()                               |
+ |                                                                          |
+ |  STAGE 1: LHS                                                           |
+ |  +---------------------------+                                           |
+ |  | LHS.generate_lhs_samples()|-----> params.csv                          |
+ |  +---------------------------+       (w_r, h_si, doping, S, lambda, L)   |
+ |                                                                          |
+ |  STAGE 2: Initial Simulations                                            |
+ |  +-------------------------------------+                                 |
+ |  | run_simulation.run_init_file()      |                                 |
+ |  |   reads params.csv                  |                                 |
+ |  |   loops over each row:              |                                 |
+ |  |     calls run_row() per row --------+--> (see run_row diagram below)  |
+ |  +-------------------------------------+                                 |
+ |                                                                          |
+ |  STAGE 2b: Bootstrap C_BASE                                              |
+ |  +------------------------------------------+                            |
+ |  | cost.calculate_c_base_from_results(df)   |                            |
+ |  |   reads result.csv                       |                            |
+ |  |   finds max valid cost --> updates       |                            |
+ |  |   _C_BASE and _PENALTY_BETA              |                            |
+ |  +------------------------------------------+                            |
+ |                                                                          |
+ |  STAGE 3: BO Loop (repeats MAX_ITERATIONS times)                         |
+ |  +-------------------------------------------------------------------+  |
+ |  |                                                                    |  |
+ |  |   +-------------------------------+                                |  |
+ |  |   | BO.train_optimizer()          |                                |  |
+ |  |   |   reads result.csv           |                                |  |
+ |  |   |   for each row:              |                                |  |
+ |  |   |     params + (-cost) ------->|---> optimizer.register()       |  |
+ |  |   |   returns: optimizer         |                                |  |
+ |  |   +---------------+--------------+                                |  |
+ |  |                   |                                                |  |
+ |  |                   | optimizer                                      |  |
+ |  |                   v                                                |  |
+ |  |   +-------------------------------+                                |  |
+ |  |   | BO.get_next_sample(optimizer) |                                |  |
+ |  |   |   optimizer.suggest() ------->|---> next_point                 |  |
+ |  |   |   np.clip to bounds          |                                |  |
+ |  |   |   returns: {w_r, h_si, ...}  |                                |  |
+ |  |   +---------------+--------------+                                |  |
+ |  |                   |                                                |  |
+ |  |                   | next_params                                    |  |
+ |  |                   v                                                |  |
+ |  |   +-------------------------------+                                |  |
+ |  |   | run_simulation.run_row()      |---> (see run_row diagram below)|  |
+ |  |   +-------------------------------+                                |  |
+ |  |                                                                    |  |
+ |  |   +-------------------------------+                                |  |
+ |  |   | BO.get_best_result()          |                                |  |
+ |  |   |   reads result.csv           |                                |  |
+ |  |   |   returns: best row dict     |                                |  |
+ |  |   +-------------------------------+                                |  |
+ |  +-------------------------------------------------------------------+  |
+ +==========================================================================+
 ```
 
-## Module Contents
+---
 
-### `sim_handler.py` -- Lumerical API
+### `run_row()` -- Single Simulation Pipeline
 
-The only module that imports `lumapi`. Handles all session lifecycle and raw data extraction.
-
-- `SimulationError(Exception)` -- Custom exception with `stage`, `message`, `original_error`
-- `set_charge_parameters(session, params, charge_data_path)` -- Configure CHARGE simulation
-- `run_charge_simulation(session)` -- Execute CHARGE simulation
-- `extract_raw_charge_data(session)` -- Extract V_drain, n, p arrays via `getresult()`
-- `set_fde_parameters(session, params)` -- Configure FDE simulation
-- `run_fde_sweep(session)` -- Execute FDE voltage sweep
-- `import_charge_data(session, charge_data_path)` -- Import CHARGE results into FDE
-- `extract_raw_optical_data(session)` -- Extract neff array via `getsweepresult()`
-- `run_full_simulation(params, sim_id)` -- Full CHARGE+FDE pipeline with session lifecycle
-
-### `data_processor.py` -- Pure Math
-
-No lumapi calls, no file I/O. Takes raw arrays, returns processed results.
-
-- `process_charge_data(V_drain, n, p)` -- Raw carrier counts to capacitance (pF/cm)
-- `process_optical_data(neff, length, wavelength)` -- Raw neff to optical parameters
-- `calc_alpha(neff, wavelength)` -- Optical loss in dB/cm
-- `calc_dneff(neff)` -- Effective index change relative to V=0
-- `calc_dphi(d_neff, length, wavelength)` -- Phase shift in radians
-- `calculate_v_pi(voltages, abs_dphi)` -- V_pi by interpolation
-- `plot_capacitance(V, C_total_pF_cm)` -- Capacitance plot
-- `plot_optical_results(V, d_neff, alpha, d_phi, v_pi)` -- Optical results plots
-
-### `run_simulation.py` -- Orchestration & I/O
-
-Coordinates simulation, processing, cost calculation, and CSV persistence.
-
-- `run_row(row, sim_id, is_last)` -- Run one simulation end-to-end
-- `run_init_file(init_csv_path, result_csv_path)` -- Run all rows from params CSV
-- `save_single_result_to_csv(csv_path, result_dict)` -- Append result to CSV
-- `save_error_to_csv(sim_id, stage, error, params)` -- Log error to CSV
-- `save_raw_sweep_data(sim_id, ...)` -- Save raw sweep arrays
-- `_re_score_failed_rows()` -- Re-score failed rows when C_BASE changes
-- `cooling_delay()` -- Pause between simulations
-- `debug_prompt(message)` -- Interactive debug pause
-
-### `cost.py` -- Cost Function & C_BASE
-
-Implements Eq. 27 cost function with dynamic C_BASE penalty for failed simulations.
-
-- `calculate_cost(alpha, v_pi_l, max_dphi, weights, targets)` -- Compute cost value
-- `update_c_base(new_value)` -- Set C_BASE to new value
-- `get_c_base()` -- Get current C_BASE value
-- `calculate_c_base_from_results(df)` -- Bootstrap C_BASE from results DataFrame
-- `update_c_base_if_needed(new_valid_cost)` -- Update C_BASE only if new cost exceeds current
-
-### `BO.py` -- Bayesian Optimization
-
-Reads stored cost from CSV. No re-scoring or recalculation of C_BASE.
-
-- `train_optimizer(result_csv_path)` -- Train GP model from stored results
-- `get_next_sample(optimizer, result_csv_path)` -- Suggest next parameter set via UCB
-- `get_best_result(result_csv_path)` -- Find best result from CSV
-
-### `main.py` -- Entry Point
-
-1. Generate LHS samples (or skip if `SKIP_LHS=True`)
-2. Run initial simulations from params.csv
-3. Bootstrap C_BASE from all results
-4. BO loop: train optimizer, suggest next point, simulate, repeat
-
-### `config.py` -- Configuration
-
-All constants, file paths, parameter bounds, and optimization settings.
-
-## C_BASE Update Logic
+This is the core function. Each numbered step shows the function called,
+what data goes in, and what comes out.
 
 ```
-Startup (main.py):
-  cost.calculate_c_base_from_results(all_results)   <- bootstrap once
+run_simulation.run_row(row, sim_id, is_last)
+|
+|   row = {w_r, h_si, doping, S, lambda, length}
+|
+|
+|   STEP 1: SIMULATION (Lumerical)
+|   ================================
+|
+|   params = {w_r, h_si, doping, S, lambda, length}
+|         |
+|         v
+|   +--------------------------------------------------+
+|   | sim_handler.run_full_simulation(params, sim_id)   |
+|   |                                                   |
+|   |   +-- CHARGE PHASE -------------------------+     |
+|   |   |                                         |     |
+|   |   |   lumapi.DEVICE() --> charge session     |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   set_charge_parameters(session, params) |     |
+|   |   |     sets: w_r, h_si, S, doping, length   |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   run_charge_simulation(session)         |     |
+|   |   |     session.mesh() --> session.run()     |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   extract_raw_charge_data(session)       |     |
+|   |   |     session.getresult("total_charge")    |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |     {V_drain[], n[], p[]}                |     |
+|   |   |                                         |     |
+|   |   |   charge.close()                         |     |
+|   |   +-----------------------------------------+     |
+|   |                                                   |
+|   |   +-- FDE PHASE ----------------------------+     |
+|   |   |                                         |     |
+|   |   |   lumapi.MODE() --> fde session          |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   set_fde_parameters(session, params)    |     |
+|   |   |     sets: w_r, h_si, length, lambda      |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   import_charge_data(session, .mat path) |     |
+|   |   |     imports charge distribution into FDE |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   run_fde_sweep(session)                 |     |
+|   |   |     session.mesh()                       |     |
+|   |   |     session.runsweep("voltage")          |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |   extract_raw_optical_data(session)      |     |
+|   |   |     session.getsweepresult("neff")       |     |
+|   |   |     np.squeeze(neff)                     |     |
+|   |   |         |                                |     |
+|   |   |         v                                |     |
+|   |   |     {neff[]}  (complex array)            |     |
+|   |   |                                         |     |
+|   |   |   fde.close()                            |     |
+|   |   +-----------------------------------------+     |
+|   |                                                   |
+|   |   returns: raw = {                                |
+|   |     V_drain[],  n[],  p[],                        |
+|   |     neff[],                                       |
+|   |     charge_time,  fde_time                        |
+|   |   }                                               |
+|   +--------------------------------------------------+
+|         |
+|         | on SimulationError:
+|         |   save_error_to_csv() --> errors.csv
+|         |   return None
+|
+|
+|   STEP 2: DATA PROCESSING (pure math)
+|   =====================================
+|
+|   raw.V_drain, raw.n, raw.p
+|         |
+|         v
+|   +----------------------------------------------+
+|   | data_processor.process_charge_data(V, n, p)  |
+|   |                                              |
+|   |   Qn = e * n          (charge from carriers) |
+|   |   Qp = e * p                                 |
+|   |   Cn = dQn/dV         (np.gradient)          |
+|   |   Cp = dQp/dV                                |
+|   |   C_total = (Cn + Cp) * 1e10  --> pF/cm      |
+|   |                                              |
+|   |   returns: (V_cap[], C_total_pF_cm[])        |
+|   +----------------------------------------------+
+|
+|   raw.neff, params.length, params.lambda
+|         |
+|         v
+|   +-------------------------------------------------------+
+|   | data_processor.process_optical_data(neff, L, lambda)   |
+|   |                                                        |
+|   |   +---------------------------+                        |
+|   |   | calc_dneff(neff)          |                        |
+|   |   |   d_neff = Re(neff - neff[0])                      |
+|   |   +---------------------------+                        |
+|   |         |  d_neff[]                                    |
+|   |         v                                              |
+|   |   +---------------------------+                        |
+|   |   | calc_alpha(neff, lambda)  |                        |
+|   |   |   k0 = 2*pi/lambda                                |
+|   |   |   alpha = 2*k0*Im(neff) * (10/ln10) * 1e-2        |
+|   |   +---------------------------+                        |
+|   |         |  alpha_dB_per_cm[]                           |
+|   |         v                                              |
+|   |   +---------------------------+                        |
+|   |   | calc_dphi(d_neff, L, lam) |                        |
+|   |   |   d_phi = 2*pi*d_neff*L/lambda                     |
+|   |   +---------------------------+                        |
+|   |         |  d_phi[]                                     |
+|   |         v                                              |
+|   |   +-------------------------------+                    |
+|   |   | calculate_v_pi(V, |d_phi|)    |                    |
+|   |   |   if max(|d_phi|) >= pi:                           |
+|   |   |     v_pi = np.interp(pi, |d_phi|, V)              |
+|   |   |   else:                                            |
+|   |   |     v_pi = NaN                                     |
+|   |   +-------------------------------+                    |
+|   |         |  v_pi (scalar)                               |
+|   |         v                                              |
+|   |   max_dphi = max(|d_phi|)                              |
+|   |                                                        |
+|   |   returns: (d_neff[], alpha[], d_phi[], v_pi, max_dphi)|
+|   +-------------------------------------------------------+
+|
+|
+|   STEP 3: BUILD RESULT (derived metrics + cost)
+|   ===============================================
+|
+|   +-----------------------------------------------------+
+|   | _build_result(sim_id, params, raw, V_cap, C, ...)    |
+|   |                                                      |
+|   |   if v_pi is not NaN (valid):                        |
+|   |     loss_at_v_pi = interp(v_pi, V, alpha[])         |
+|   |     C_at_v_pi    = interp(v_pi, V_cap, C[])         |
+|   |     v_pi_l       = v_pi * length * 1e3   (V*mm)     |
+|   |   else (failed):                                     |
+|   |     loss_at_v_pi = NaN                               |
+|   |     C_at_v_pi    = NaN                               |
+|   |     v_pi_l       = NaN                               |
+|   |         |                                            |
+|   |         v                                            |
+|   |   +-------------------------------------------+      |
+|   |   | cost.calculate_cost(alpha, v_pi_l, dphi)  |      |
+|   |   |                                           |      |
+|   |   |  if valid (v_pi_l not NaN):               |      |
+|   |   |    norm_loss = (alpha/target)^2            |      |
+|   |   |    norm_vpil = (vpil/target)^2             |      |
+|   |   |    cost = w_loss*norm_loss + w_vpil*norm_vpil    |
+|   |   |                                           |      |
+|   |   |  if failed (v_pi_l is NaN):               |      |
+|   |   |    cost = C_BASE + beta*(pi - max_dphi)^2 |      |
+|   |   |                                           |      |
+|   |   |  returns: -cost (negative for BO max)     |      |
+|   |   +-------------------------------------------+      |
+|   |         |                                            |
+|   |         v                                            |
+|   |   cost_value = -neg_cost  (positive for CSV)         |
+|   |                                                      |
+|   |   if valid and cost_value > C_BASE:                  |
+|   |     +------------------------------------------+     |
+|   |     | cost.update_c_base_if_needed(cost_value) |     |
+|   |     |   _C_BASE = cost_value                   |     |
+|   |     |   _PENALTY_BETA = 9*C_BASE/pi^2         |     |
+|   |     +------------------------------------------+     |
+|   |               |                                      |
+|   |               v  (C_BASE changed)                    |
+|   |     +------------------------------------------+     |
+|   |     | _re_score_failed_rows()                  |     |
+|   |     |   reads result.csv                       |     |
+|   |     |   for each row with NaN v_pi_l:          |     |
+|   |     |     recalculate cost with new C_BASE     |     |
+|   |     |   writes updated result.csv              |     |
+|   |     +------------------------------------------+     |
+|   |                                                      |
+|   |   +-------------------------------------------+      |
+|   |   | save_raw_sweep_data(sim_id, V, neff, ...) |      |
+|   |   |   --> raw/sim_{id}_raw.csv                |      |
+|   |   +-------------------------------------------+      |
+|   |                                                      |
+|   |   returns: result_dict = {                           |
+|   |     sim_id, w_r, h_si, doping, S, lambda, length,   |
+|   |     v_pi_V, v_pi_l_Vmm, loss_at_v_pi_dB_per_cm,    |
+|   |     C_at_v_pi_pF_per_cm, max_dphi_rad,              |
+|   |     is_valid, norm_loss, norm_vpil, cost,            |
+|   |     charge_time_s, fde_time_s, total_time_s,         |
+|   |     intrinsic_width_m, loss/C min/max ranges         |
+|   |   }                                                  |
+|   +-----------------------------------------------------+
+|
+|
+|   STEP 4: SAVE TO CSV
+|   ====================
+|
+|   result_dict
+|         |
+|         v
+|   +---------------------------------------------------+
+|   | save_single_result_to_csv(path, result_dict)      |
+|   |                                                    |
+|   |   +------------------------------------------+     |
+|   |   | _save_to_csv(result.csv, df, MINIMAL_COLS)|    |
+|   |   |   appends to result.csv (key columns only)|    |
+|   |   +------------------------------------------+     |
+|   |                                                    |
+|   |   +------------------------------------------+     |
+|   |   | _save_to_csv(result_full.csv, df, ALL)   |     |
+|   |   |   appends to result_full.csv (all columns)|    |
+|   |   +------------------------------------------+     |
+|   +---------------------------------------------------+
+|
+|
+|   STEP 5: COOLING DELAY
+|   ======================
+|
+|   +-----------------------------+
+|   | cooling_delay(skip=is_last) |
+|   |   time.sleep(DELAY)         |
+|   +-----------------------------+
+|
+|   returns: result_dict (or None on error)
+```
 
-Each simulation (run_simulation.py -> run_row):
-  cost_val = cost.calculate_cost(alpha, v_pi_l, max_dphi)
-  save to CSV
-  if valid run (v_pi is not NaN):
-    if cost.update_c_base_if_needed(valid_cost):
-      _re_score_failed_rows()                        <- C_BASE changed
+---
 
-BO training (BO.py -> train_optimizer):
-  reads stored 'cost' column from CSV               <- no re-scoring
+### `LHS.generate_lhs_samples()` -- Parameter Generation
+
+```
++----------------------------------------------+
+| LHS.generate_lhs_samples()                   |
+|                                              |
+|   config.SWEEP_PARAMETERS                    |
+|     = {w_r: {min, max}, h_si: {min, max}, ...}
+|         |                                    |
+|         v                                    |
+|   limits = [[min1, max1], [min2, max2], ...] |
+|         |                                    |
+|         v                                    |
+|   if method == 'random':                     |
+|     scipy.qmc.LatinHypercube(d=6)            |
+|     sampler.random(n=N) --> unit hypercube   |
+|     qmc.scale(samples, mins, maxs)           |
+|                                              |
+|   if method == 'maximin' or 'optimum':       |
+|     smt.LHS(xlimits=limits, criterion=...)   |
+|     sampling(N)                              |
+|         |                                    |
+|         v                                    |
+|   DataFrame: N rows x 6 params              |
+|   round to 4 sig figs                        |
+|   add sim_id column (1..N)                   |
+|   add units row                              |
+|         |                                    |
+|         v                                    |
+|   --> params.csv                             |
++----------------------------------------------+
+```
+
+---
+
+### `BO.train_optimizer()` -- Training
+
+```
++-----------------------------------------------+
+| BO.train_optimizer(result_csv_path)           |
+|                                               |
+|   reads result.csv                            |
+|         |                                     |
+|         v                                     |
+|   for each row in df:                         |
+|     params = {w_r, h_si, doping, S, lam, L}  |
+|     target = -row['cost']  (negate for max)   |
+|         |                                     |
+|         v                                     |
+|   optimizer.register(params, target)          |
+|     BayesianOptimization(                     |
+|       pbounds from SWEEP_PARAMETERS,          |
+|       acquisition = UCB(kappa=2.0)            |
+|     )                                         |
+|         |                                     |
+|         v                                     |
+|   returns: trained optimizer object           |
++-----------------------------------------------+
+```
+
+### `BO.get_next_sample()` -- Suggestion
+
+```
++--------------------------------------------+
+| BO.get_next_sample(optimizer)              |
+|                                            |
+|   optimizer.suggest()                      |
+|     GP model predicts mean + uncertainty   |
+|     UCB selects point maximizing            |
+|       mu + kappa * sigma                   |
+|         |                                  |
+|         v                                  |
+|   next_point = {w_r, h_si, doping, ...}   |
+|   np.clip each param to [min, max]         |
+|         |                                  |
+|         v                                  |
+|   returns: clipped params dict             |
++--------------------------------------------+
+```
+
+### `BO.get_best_result()` -- Best Lookup
+
+```
++--------------------------------------------+
+| BO.get_best_result(result_csv_path)        |
+|                                            |
+|   reads result.csv                         |
+|   df.dropna(subset=['cost'])               |
+|   best_idx = df['cost'].idxmin()           |
+|     (lowest positive cost = best)          |
+|         |                                  |
+|         v                                  |
+|   returns: row dict or None                |
++--------------------------------------------+
+```
+
+---
+
+### `cost.py` -- Cost Function Internals
+
+```
++-----------------------------------------------------------+
+| cost.calculate_cost(alpha, v_pi_l, max_dphi)              |
+|                                                           |
+|   SUCCESS PATH (v_pi_l is a number):                      |
+|                                                           |
+|     alpha -----> (alpha / 2.0)^2 -----> norm_loss         |
+|     v_pi_l ----> (vpil / 1.0)^2 ------> norm_vpil        |
+|                                                           |
+|     cost = 0.3 * norm_loss + 0.7 * norm_vpil              |
+|     return -cost                                          |
+|                                                           |
+|   PENALTY PATH (v_pi_l is NaN or None):                   |
+|                                                           |
+|     max_dphi ---> (pi - max_dphi)^2 ---> gap_squared      |
+|                                                           |
+|     cost = C_BASE + (9*C_BASE/pi^2) * gap_squared         |
+|     return -cost                                          |
++-----------------------------------------------------------+
+
++-----------------------------------------------------------+
+| cost.calculate_c_base_from_results(df)                    |
+|                                                           |
+|   df (result.csv) --> dropna(v_pi_l, loss)                |
+|         |                                                 |
+|         v                                                 |
+|   for each valid row:                                     |
+|     cost_i = 0.3*(loss/2.0)^2 + 0.7*(vpil/1.0)^2         |
+|                                                           |
+|   C_BASE = max(cost_i)                                    |
+|   PENALTY_BETA = 9 * C_BASE / pi^2                       |
++-----------------------------------------------------------+
+```
+
+---
+
+### Full System Sequence (one BO iteration)
+
+```
+main.main()
+  |
+  |-- BO.train_optimizer()
+  |     reads result.csv
+  |     registers all (params, -cost) pairs into GP
+  |     returns: optimizer
+  |
+  |-- BO.get_next_sample(optimizer)
+  |     optimizer.suggest() --> {w_r, h_si, doping, S, lambda, length}
+  |     returns: next_params
+  |
+  |-- run_simulation.run_row(next_params, sim_id)
+  |     |
+  |     |-- sim_handler.run_full_simulation(params)
+  |     |     |-- lumapi.DEVICE() --> set_charge_parameters --> run_charge --> extract_raw_charge
+  |     |     |     returns: {V_drain[], n[], p[]}
+  |     |     |-- lumapi.MODE() --> set_fde_parameters --> import_charge --> run_fde_sweep --> extract_raw_optical
+  |     |     |     returns: {neff[]}
+  |     |     returns: {V_drain, n, p, neff, charge_time, fde_time}
+  |     |
+  |     |-- data_processor.process_charge_data(V_drain, n, p)
+  |     |     calc: Qn, Qp, dQ/dV, C_total
+  |     |     returns: (V_cap[], C_total_pF_cm[])
+  |     |
+  |     |-- data_processor.process_optical_data(neff, length, lambda)
+  |     |     |-- calc_dneff(neff) --> d_neff[]
+  |     |     |-- calc_alpha(neff, lambda) --> alpha_dB_per_cm[]
+  |     |     |-- calc_dphi(d_neff, length, lambda) --> d_phi[]
+  |     |     |-- calculate_v_pi(V, |d_phi|) --> v_pi
+  |     |     returns: (d_neff[], alpha[], d_phi[], v_pi, max_dphi)
+  |     |
+  |     |-- _build_result(...)
+  |     |     |-- interp(v_pi, ...) --> loss_at_v_pi, C_at_v_pi, v_pi_l
+  |     |     |-- cost.calculate_cost(alpha, v_pi_l, max_dphi) --> neg_cost
+  |     |     |-- cost.update_c_base_if_needed(cost_value)
+  |     |     |     |-- _re_score_failed_rows() if C_BASE changed
+  |     |     |-- save_raw_sweep_data() --> raw/sim_N_raw.csv
+  |     |     returns: result_dict
+  |     |
+  |     |-- save_single_result_to_csv(result_dict) --> result.csv, result_full.csv
+  |     |-- cooling_delay()
+  |     returns: result_dict
+  |
+  |-- BO.get_best_result() --> best row from result.csv
+```
+
+---
+
+### CSV File Flow
+
+```
+                    params.csv
+                   (LHS output)
+                       |
+                       | read by run_init_file()
+                       v
+    +------------------------------------------+
+    |         run_row() x N simulations        |
+    +--------+-----------+----------+----------+
+             |           |          |
+             v           v          v
+        result.csv  result_full  raw/sim_N_raw.csv
+        (minimal)    .csv         (per-sim sweep)
+        (13 cols)   (all cols)    (V, neff, alpha,
+             |                     d_phi, v_pi)
+             |
+             | read by BO.train_optimizer()
+             | read by BO.get_best_result()
+             | read/write by _re_score_failed_rows()
+             v
+    +------------------------------------------+
+    |   BO loop: train --> suggest --> run_row  |
+    +------------------------------------------+
+             |
+             v
+        result.csv (appended)
+
+
+    On error:
+        save_error_to_csv() --> errors.csv
 ```
