@@ -111,253 +111,221 @@ const MOD = {
 const N = {};
 function n(id, x, y, w, h, mod, label, sub, details) { N[id] = {id,x,y,w,h,mod,label,sub:sub||'',details:details||null}; }
 
-// ---- Row 0: Entry point ----
-n('main',       860, 30, 240, 56, 'main', 'main()', 'Entry point — 4-stage optimization pipeline', {
+// ---- Row 0 (y=30): Entry point ----
+n('main',        680, 30, 260, 56, 'main', 'main()', 'Entry point \u2014 orchestrates 4-stage optimization pipeline', {
   inputs: [],
   outputs: 'None',
-  logic: '4-stage pipeline: (1) LHS sampling, (2) run initial sims + bootstrap C_BASE, (3) BO loop, (4) output best result'
+  logic: '4-stage pipeline: (1) LHS sampling or skip, (2) run initial sims or skip, (3) BO loop: train once then suggest\u2192simulate\u2192register, (4) print final results'
 });
-n('setup_log',  1180, 30, 210, 46, 'main', 'setup_logging()', 'Dual console + file logging', {
+n('setup_log',  1040, 30, 220, 46, 'main', 'setup_logging()', 'Dual console + file logging', {
   inputs: [],
   outputs: 'str \u2014 log file path',
-  logic: 'Creates logs/ dir, configures dual logging (console + file) with timestamps'
-});
-n('debug_main', 1180, 90, 210, 46, 'main', 'debug_prompt()', 'If DEBUG: confirm/skip/quit', {
-  inputs: ['message: str'],
-  outputs: 'bool \u2014 continue/skip, exits on \'q\'',
-  logic: 'In DEBUG mode: prompts user to confirm/skip/quit; non-DEBUG: always returns True'
+  logic: 'Creates logs/ dir, configures dual logging (console INFO + file) with timestamps'
 });
 
-// ---- Row 1: Stage 1 + Stage 2b + Stage 3 starts ----
-n('lhs',         60, 190, 320, 56, 'lhs', 'generate_lhs_samples()', 'LHS in 6D param space \u2192 params.csv', {
-  inputs: ['start_sim_id: int (optional)'],
+// ---- Row 1 (y=140): Stage functions from main ----
+n('skip_init',   100, 140, 280, 56, 'main', '_skip_initial()', 'Load existing result.csv (skip LHS+sims)', {
+  inputs: ['results_path: str'],
+  outputs: 'None',
+  logic: 'Reads existing result.csv, logs row count and valid count. Used when SKIP_INITIAL_SIMS=True.'
+});
+n('run_initial',  440, 140, 310, 56, 'main', '_run_initial()', 'LHS sampling + initial simulations', {
+  inputs: ['params_path: str', 'results_path: str'],
+  outputs: 'None',
+  logic: 'Calls LHS.generate_lhs_samples() then run_simulation.run_init_file(). Logs summary of valid/failed.'
+});
+n('run_bo_loop',  820, 140, 300, 56, 'main', '_run_bo_loop()', 'Train BO once, then suggest\u2192sim\u2192register loop', {
+  inputs: ['results_path: str'],
+  outputs: 'None',
+  logic: 'Trains optimizer ONCE with all existing results. Then loops: get_next_sample \u2192 run_row \u2192 register_result. Calls _log_bo_result and get_best_result each iteration.'
+});
+n('print_final', 1200, 140, 290, 56, 'main', '_print_final_results()', 'Print best result summary table', {
+  inputs: ['results_path: str'],
+  outputs: 'None',
+  logic: 'Reads result.csv, counts valid/invalid, calls BO.get_best_result(), prints formatted table of best parameters and metrics.'
+});
+
+// ---- Row 2 (y=280): LHS, run_init_file, train_optimizer ----
+n('gen_lhs',      120, 280, 320, 56, 'lhs', 'generate_lhs_samples()', 'LHS in 6D param space \u2192 params.csv', {
+  inputs: ['start_sim_id: int (optional, default 1)'],
   outputs: 'DataFrame \u2014 LHS samples',
-  logic: 'Generates Latin Hypercube samples in 6D parameter space, scales to bounds, rounds to 4 sig figs, saves to params.csv'
+  logic: 'Generates Latin Hypercube samples in 6D parameter space using scipy or SMT. Scales to config bounds, rounds to 4 sig figs, adds sim_id + units row, saves to params.csv.'
 });
-n('c_base_boot',660, 190, 340, 56, 'cost','calculate_c_base_from_results()', 'C_BASE = max(valid costs) from CSV', {
-  inputs: ['result_csv_path: str (optional)'],
-  outputs: 'float \u2014 bootstrapped C_BASE value',
-  logic: 'Reads result.csv, finds max valid cost among completed simulations, updates C_BASE module state'
-});
-n('train',      1200, 190, 290, 56, 'bo',  'train_optimizer()', 'Register (params, \u2212cost) into GP model', {
-  inputs: ['result_csv_path: str (optional)'],
-  outputs: 'BayesianOptimization object',
-  logic: 'Reads result.csv, registers each (params, \u2212cost) point into GP model with UCB acquisition'
-});
-n('get_best',   1580, 190, 260, 50, 'bo',  'get_best_result()', 'Lowest cost row from result.csv', {
-  inputs: ['result_csv_path: str (optional)'],
-  outputs: 'dict or None \u2014 best result row',
-  logic: 'Reads CSV, filters valid cost values, returns row with minimum cost'
-});
-
-// ---- Row 2: LHS output + BO suggest ----
-n('f_params',   130, 310, 150, 38, 'file', 'params.csv');
-n('run_init',    60, 400, 300, 56, 'runsim','run_init_file()', 'Read params.csv, loop run_row() per row', {
+n('run_init_file',540, 280, 310, 56, 'runsim', 'run_init_file()', 'Read params.csv, loop run_row() per row', {
   inputs: ['params_csv_path: str (optional)', 'logger_func: callable (optional)'],
   outputs: 'str \u2014 results CSV path',
-  logic: 'Loops run_row() for each row in params.csv, tracks success/failure counts'
+  logic: 'Reads params.csv, loops run_row() for each row, tracks success/failure counts, prints summary.'
 });
-n('log_result', 60, 510, 210, 44, 'runsim','_log_result()', 'Log sim timing & metrics', {
-  inputs: ['logger_func: callable', 'result: dict'],
-  outputs: 'None',
-  logic: 'Logs timing, geometry, outputs, cost components, loss/capacitance ranges'
-});
-n('suggest',   1230, 330, 290, 56, 'bo',   'get_next_sample()', 'optimizer.suggest() \u2192 clip to bounds', {
-  inputs: ['optimizer: BayesianOptimization'],
-  outputs: 'dict or None \u2014 next params',
-  logic: 'Calls optimizer.suggest(), validates parameters present, clips to bounds'
+n('train_opt',    960, 280, 290, 56, 'bo', 'train_optimizer()', 'Register (params, \u2212log(cost)) into GP model', {
+  inputs: ['result_csv_path: str (optional)'],
+  outputs: 'BayesianOptimization object',
+  logic: 'Reads result.csv, normalizes params to [0,1], log-transforms cost, registers each point with GP+UCB. Created ONCE and reused.'
 });
 
-// ---- Row 3: Central node ----
-n('run_row',    700, 530, 380, 66, 'runsim','run_row(row, sim_id, is_last)', 'Single simulation pipeline: sim \u2192 process \u2192 cost \u2192 save', {
+// ---- Row 3 (y=400): params.csv, get_next_sample, register_result, get_best_result ----
+n('f_params',     180, 400, 150, 38, 'file', 'params.csv');
+n('suggest',      560, 400, 290, 56, 'bo', 'get_next_sample()', 'optimizer.suggest() \u2192 denormalize \u2192 clip', {
+  inputs: ['optimizer: BayesianOptimization'],
+  outputs: 'dict or None \u2014 next params in raw scale',
+  logic: 'Calls optimizer.suggest() in [0,1] space, denormalizes back to raw scale, clips to config bounds.'
+});
+n('register',     920, 400, 290, 56, 'bo', 'register_result()', 'normalize + \u2212log(cost) \u2192 register', {
+  inputs: ['optimizer: BayesianOptimization', 'params: dict (raw scale)', 'cost_value: float (positive)'],
+  outputs: 'None',
+  logic: 'Normalizes params to [0,1], registers with target = \u2212log(cost_value).'
+});
+n('get_best',    1280, 400, 260, 50, 'bo', 'get_best_result()', 'Lowest cost row from result.csv', {
+  inputs: ['result_csv_path: str (optional)'],
+  outputs: 'dict or None \u2014 best result row',
+  logic: 'Reads CSV, drops NaN cost rows, returns row with minimum cost value.'
+});
+
+// ---- Row 4 (y=530): run_row (central hub) ----
+n('run_row',      560, 530, 420, 66, 'runsim', 'run_row(row, sim_id, is_last)', 'Single sim pipeline: sim \u2192 process \u2192 build \u2192 save \u2192 cool', {
   inputs: ['row: Series/dict', 'sim_id: int (optional)', 'is_last: bool (optional)'],
   outputs: 'dict or None',
-  logic: 'Pipeline: sim \u2192 process charge/optical \u2192 build result \u2192 save \u2192 cool'
+  logic: 'Pipeline: (1) run_full_simulation, (2) process_charge_data + process_optical_data, (3) _build_result, (4) save_single_result_to_csv, (5) cooling_delay. On error: save_error_to_csv and return None.'
 });
 
-// ---- Row 4: Simulation ----
-n('full_sim',   720, 680, 400, 56, 'simh', 'run_full_simulation(params, sim_id)', 'CHARGE + FDE with session lifecycle', {
+// ---- Row 5 (y=670): run_full_simulation, save_error_to_csv ----
+n('full_sim',     530, 670, 420, 56, 'simh', 'run_full_simulation(params, sim_id)', 'CHARGE\u2192FDE pipeline with session lifecycle', {
   inputs: ['params: dict', 'sim_id: int (optional)'],
-  outputs: 'dict {V_drain, n, p, neff, charge_time, fde_time}',
-  logic: 'CHARGE\u2192FDE pipeline: open/configure/run/extract/close both sessions; raises SimulationError'
+  outputs: '(DataFrame, raw_csv_path, timing) \u2014 raw data + path + timing dict',
+  logic: 'Opens CHARGE session: set_params \u2192 run \u2192 extract \u2192 close. Opens FDE session: set_params \u2192 import_charge \u2192 sweep \u2192 extract \u2192 close. Builds combined DataFrame, saves raw CSV. Raises SimulationError on failure.'
 });
-n('sim_error',  720, 750, 200, 40, 'simh', 'SimulationError', 'stage + original_error', {
-  inputs: ['stage: str', 'message: str', 'original_error (optional)'],
-  outputs: 'Exception',
-  logic: 'Custom exception tracking which stage failed + original error'
-});
-n('save_error',  80, 680, 260, 50, 'runsim','save_error_to_csv()', '\u2192 errors.csv', {
+n('save_error',   100, 670, 270, 50, 'runsim', 'save_error_to_csv()', '\u2192 errors.csv', {
   inputs: ['sim_id: int', 'stage: str', 'error: Exception', 'params: dict (optional)'],
   outputs: 'None',
-  logic: 'Records error details + traceback + timestamp to errors.csv'
+  logic: 'Records sim_id, stage, error type/message, traceback, timestamp, params JSON to errors.csv.'
 });
 
-// ---- Row 5: CHARGE cluster ----
-n('set_charge',  50, 860, 310, 48, 'simh', 'set_charge_parameters()', 'Geometry, doping, contacts, monitor', {
+// ---- Row 6 (y=810-960): CHARGE cluster (left) ----
+n('set_charge',    60, 840, 310, 48, 'simh', 'set_charge_parameters()', 'Geometry, doping, contacts, monitor', {
   inputs: ['charge_session', 'params: dict', 'charge_file_path: str'],
   outputs: 'None',
-  logic: 'Sets geometry (w_r, h_si, S), doping, contacts, oxide, monitor on CHARGE objects'
+  logic: 'Sets waveguide/pad geometry (w_r, h_si), contact z_min, doping regions (source_nwell, drain_pwell with S offset), nplus/pplus ohmic contacts, monitor output path.'
 });
-n('run_charge',  50, 930, 290, 48, 'simh', 'run_charge_simulation()', 'Save \u2192 mesh \u2192 run solver \u2192 verify', {
+n('run_charge',    60, 910, 290, 48, 'simh', 'run_charge_simulation()', 'Save \u2192 mesh \u2192 run solver \u2192 verify', {
   inputs: ['charge_session'],
   outputs: 'None',
-  logic: 'Save \u2192 mesh \u2192 run solver \u2192 verify results exist'
+  logic: 'Saves .ldev file, generates mesh, runs CHARGE solver, verifies results exist (V_drain, n, p arrays).'
 });
-n('ext_charge',  50,1000, 320, 48, 'simh', 'extract_raw_charge_data()', 'getresult("total_charge") \u2192 flatten', {
+n('ext_charge',    60, 980, 320, 48, 'simh', 'extract_raw_charge_data()', 'getresult("total_charge") \u2192 flatten', {
   inputs: ['charge_session'],
   outputs: 'dict {V_drain, n, p} \u2014 flattened arrays',
-  logic: 'getresult("total_charge") \u2192 flatten all arrays'
+  logic: 'getresult("CHARGE::monitor_charge","total_charge") \u2192 flatten V_drain, n, p arrays.'
 });
 
-// ---- Row 5: FDE cluster ----
-n('set_fde',    820, 860, 280, 48, 'simh', 'set_fde_parameters()', 'Geometry + wavelength', {
+// ---- Row 6 (y=810-960): FDE cluster (right) ----
+n('set_fde',      820, 840, 280, 48, 'simh', 'set_fde_parameters()', 'Geometry + wavelength on FDE', {
   inputs: ['fde_session', 'params: dict'],
   outputs: 'None',
-  logic: 'Sets geometry + wavelength on FDE objects'
+  logic: 'Sets wavelength on FDE solver, sets geometry (waveguide, pad, contacts, oxide) matching CHARGE layout.'
 });
-n('imp_charge', 820, 930, 290, 48, 'simh', 'import_charge_data()', 'Import .mat charge data into FDE', {
+n('imp_charge',   820, 910, 300, 48, 'simh', 'import_charge_data()', 'Import .mat charge data into FDE', {
   inputs: ['fde_session', 'charge_file_path: str'],
   outputs: 'None',
-  logic: 'Resolves path, selects np object, imports charge data via importdataset'
+  logic: 'Selects ::model::np object, resolves charge data path, calls importdataset to load carrier distributions.'
 });
-n('run_fde',   1180, 930, 260, 48, 'simh', 'run_fde_sweep()', 'Save \u2192 mesh \u2192 sweep \u2192 verify', {
+n('run_fde',     1180, 910, 260, 48, 'simh', 'run_fde_sweep()', 'Save \u2192 mesh \u2192 sweep \u2192 verify', {
   inputs: ['fde_session'],
   outputs: 'None',
-  logic: 'Save \u2192 mesh \u2192 runsweep \u2192 verify neff exists'
+  logic: 'Saves .lms file, generates mesh, runs voltage sweep, verifies neff results exist and are non-empty.'
 });
-n('ext_optical',900,1000, 330, 48, 'simh', 'extract_raw_optical_data()', 'getsweepresult("neff") \u2192 squeeze', {
+n('ext_optical',  900, 980, 330, 48, 'simh', 'extract_raw_optical_data()', 'getsweepresult("neff") \u2192 squeeze', {
   inputs: ['fde_session'],
   outputs: 'dict {neff} \u2014 squeezed complex array',
-  logic: 'getsweepresult("voltage","neff") \u2192 np.squeeze'
+  logic: 'getsweepresult("voltage","neff") \u2192 np.squeeze to get 1D complex neff array.'
 });
 
-// ---- Row 6: Processing ----
-n('proc_charge', 60,1130, 320, 56, 'dp', 'process_charge_data(V, n, p)', 'Q=e\u00b7n \u2192 C=dQ/dV \u2192 pF/cm', {
+// ---- Row 7 (y=1040): process_charge_data, process_optical_data ----
+n('proc_charge',   60, 1040, 320, 56, 'dp', 'process_charge_data(V, n, p)', 'Q=e\u00b7n \u2192 C=dQ/dV \u2192 pF/cm', {
   inputs: ['V_drain: array', 'n: array', 'p: array', 'sim_id: int (optional)'],
   outputs: '(V, C_total_pF_cm) \u2014 tuple of arrays',
-  logic: 'Q = e\u00b7carriers \u2192 C = dQ/dV for e\u207b and h\u207a \u2192 sum \u2192 convert to pF/cm'
+  logic: 'Q = e\u00b7carriers \u2192 C = dQ/dV for electrons and holes \u2192 C_total = Cn+Cp \u2192 convert to pF/cm (*1e10). Optionally plots.'
 });
-n('proc_optical',850,1130, 340, 56, 'dp', 'process_optical_data(neff, L, \u03bb)', 'Calls 4 calc functions below', {
+n('proc_optical',  850, 1040, 340, 56, 'dp', 'process_optical_data(neff, L, \u03bb)', 'Calls calc_dneff, calc_alpha, calc_dphi, calculate_v_pi', {
   inputs: ['neff: complex[]', 'length: float', 'wavelength: float', 'sim_id: int (optional)'],
-  outputs: '(d_neff, alpha, d_phi, v_pi, max_dphi) \u2014 tuple',
-  logic: 'Calls calc_dneff/alpha/dphi/v_pi, reconstructs V from config'
+  outputs: '(d_neff, alpha_dB_per_cm, d_phi, v_pi, max_dphi) \u2014 tuple',
+  logic: 'Reconstructs V from config. Calls calc_dneff, calc_alpha, calc_dphi, calculate_v_pi. Returns processed arrays + v_pi + max_dphi. Optionally plots.'
 });
 
-// ---- Row 7: Calc sub-functions ----
-n('calc_dneff', 760,1270, 220, 46, 'dp', 'calc_dneff(neff)', 'Re(neff \u2212 neff[0])', {
+// ---- Row 8 (y=1170): calc sub-functions ----
+n('calc_dneff',   700, 1170, 220, 46, 'dp', 'calc_dneff(neff)', 'Re(neff \u2212 neff[0])', {
   inputs: ['neff: complex[]'],
   outputs: 'array \u2014 Re(neff \u2212 neff[0])',
-  logic: 'Real part of effective index change relative to V=0'
+  logic: 'Real part of effective index change relative to zero-bias value.'
 });
-n('calc_alpha',1020,1270, 220, 46, 'dp', 'calc_alpha(neff, \u03bb)', '2k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e-2', {
-  inputs: ['neff: complex[] \u2014 effective index array from FDE sweep', 'wavelength: float \u2014 operating wavelength (m)'],
-  outputs: 'np.array \u2014 optical loss in dB/cm',
-  logic: 'Calculates k\u2080 = 2\u03c0/\u03bb, extracts Im(neff), applies conversion: 2\u00b7k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e-2'
+n('calc_alpha',   960, 1170, 240, 46, 'dp', 'calc_alpha(neff, \u03bb)', '2k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e\u22122', {
+  inputs: ['neff: complex[]', 'wavelength: float (m)'],
+  outputs: 'array \u2014 optical loss in dB/cm',
+  logic: 'k\u2080 = 2\u03c0/\u03bb, then \u03b1 = 2\u00b7k\u2080\u00b7Im(neff)\u00b7(10/ln10)\u00b71e\u22122. Converts from Np/m to dB/cm.'
 });
-n('calc_dphi', 1280,1270, 210, 46, 'dp', 'calc_dphi(\u0394n, L, \u03bb)', '2\u03c0\u00b7\u0394neff\u00b7L / \u03bb', {
-  inputs: ['d_neff: array', 'length: float', 'wavelength: float'],
+n('calc_dphi',   1240, 1170, 220, 46, 'dp', 'calc_dphi(\u0394n, L, \u03bb)', '2\u03c0\u00b7\u0394neff\u00b7L / \u03bb', {
+  inputs: ['d_neff: array', 'length: float (m)', 'wavelength: float (m)'],
   outputs: 'array \u2014 phase shift (rad)',
   logic: '\u0394\u03c6 = 2\u03c0\u00b7\u0394neff\u00b7L / \u03bb'
 });
-
-// ---- Row 8: V_pi ----
-n('calc_vpi',  1020,1360, 240, 46, 'dp', 'calculate_v_pi(V, |d\u03c6|)', 'interp(\u03c0, |d\u03c6|, V) or NaN', {
+n('calc_vpi',    1000, 1280, 260, 46, 'dp', 'calculate_v_pi(V, |d\u03c6|)', 'interp(\u03c0, |d\u03c6|, V) or NaN', {
   inputs: ['voltages: array', 'abs_dphi: array'],
   outputs: 'float \u2014 V_pi or NaN',
-  logic: 'If max(|d\u03c6|) \u2265 \u03c0: interpolate voltage at \u03c0; else NaN'
+  logic: 'If max(|d\u03c6|) \u2265 \u03c0: np.interp to find voltage at \u03c0 phase shift; else NaN.'
 });
 
-// ---- Plotting (side) ----
-n('plot_cap',    60,1230, 250, 42, 'dp', 'plot_capacitance()', 'C vs V (if SHOW_PLOTS)', {
-  inputs: ['V: array', 'C_total_pF_cm: array'],
-  outputs: 'None (shows plot)',
-  logic: 'Matplotlib: C vs V with markers and grid'
-});
-n('plot_opt',   1300,1130, 270, 42, 'dp', 'plot_optical_results()', '3-panel plot (if SHOW_PLOTS)', {
-  inputs: ['V: array', 'd_neff: array', 'alpha: array', 'd_phi: array', 'v_pi: float (optional)'],
-  outputs: 'None (shows plot)',
-  logic: '3-subplot: \u0394neff, loss, phase vs V; \u00b1\u03c0 reference lines'
+// ---- Row 9 (y=1310): _build_result ----
+n('build',        560, 1380, 400, 56, 'runsim', '_build_result(...)', 'interp at v_pi (or worst-case) \u2192 cost \u2192 result dict', {
+  inputs: ['sim_id', 'params', 'timing', 'V_cap', 'C_total_pF_cm', 'd_neff', 'alpha', 'd_phi', 'v_pi', 'max_dphi', 'total_time'],
+  outputs: 'dict \u2014 complete result with all metrics',
+  logic: 'If valid (v_pi exists): interp loss/capacitance at v_pi, v_pi_l = v_pi*L. If failed: worst-case loss, v_pi_l = V_MAX*L. Calls calculate_cost with same formula for both cases. Builds full result dict.'
 });
 
-// ---- Row 9: Build result ----
-n('build',      640,1480, 380, 56, 'runsim','_build_result(...)', 'interp @ v_pi \u2192 loss, C, v_pi_l + cost + C_BASE check', {
-  inputs: ['sim_id', 'params', 'raw', 'V_cap', 'C', 'd_neff', 'alpha', 'd_phi', 'v_pi', 'max_dphi', 'total_time'],
-  outputs: 'dict \u2014 complete result',
-  logic: 'Interpolates loss/capacitance at v_pi, calculates cost, checks C_BASE, saves raw data'
+// ---- Row 10 (y=1430): calculate_cost, save_single_result_to_csv, cooling_delay ----
+n('calc_cost',    440, 1500, 300, 56, 'cost', 'calculate_cost(\u03b1, v_pi_l)', 'w\u00b7(\u03b1/t) + w\u00b7(v/t), returns \u2212cost', {
+  inputs: ['alpha: float', 'v_pi_l: float', 'weights: tuple (optional)', 'targets: tuple (optional)'],
+  outputs: 'float \u2014 negative cost (for BO maximization)',
+  logic: 'Linear FOM: w_loss*(alpha/target_loss) + w_vpil*(v_pi_l/target_vpil). Same formula for valid and failed sims. Returns \u2212cost.'
 });
-
-// ---- Row 10: Cost + C_BASE + save raw ----
-n('calc_cost',  440,1610, 290, 56, 'cost', 'calculate_cost(\u03b1, v_pi_l, d\u03c6)', 'Success: w\u00b7(\u03b1/t)\u00b2+w\u00b7(v/t)\u00b2 | Penalty: C_BASE+\u03b2\u00b7(\u03c0\u2212d\u03c6)\u00b2', {
-  inputs: ['alpha: float', 'v_pi_l: float/None', 'max_dphi: float (optional)', 'weights: tuple (optional)', 'targets: tuple (optional)'],
-  outputs: 'float \u2014 negative cost',
-  logic: 'Success: w\u00b7(\u03b1/t)\u00b2 + w\u00b7(v/t)\u00b2; Penalty: C_BASE + \u03b2\u00b7(\u03c0 \u2212 d\u03c6)\u00b2'
-});
-n('upd_cbase',  860,1610, 330, 50, 'cost', 'update_c_base_if_needed(cost)', 'If cost > C_BASE \u2192 update + return True', {
-  inputs: ['new_valid_cost: float'],
-  outputs: 'bool \u2014 True if updated',
-  logic: 'If cost > C_BASE \u2192 update and return True (caller re-scores)'
-});
-n('save_raw',  1300,1480, 290, 50, 'runsim','save_raw_sweep_data()', '\u2192 raw/sim_{id}_raw.csv', {
-  inputs: ['sim_id: int', 'V: array', 'neff: array', 'alpha: array', 'd_phi: array', 'v_pi: float'],
-  outputs: 'None',
-  logic: 'Saves per-simulation raw sweep data to raw/sim_{id}_raw.csv'
-});
-
-// ---- Row 11: Save result + rescore + cooling ----
-n('save_result', 340,1740, 340, 50, 'runsim','save_single_result_to_csv()', 'Reorder columns, write minimal + full', {
+n('save_result',  820, 1500, 340, 50, 'runsim', 'save_single_result_to_csv()', 'Write minimal + full CSV files', {
   inputs: ['filename: str', 'result: dict'],
   outputs: 'None',
-  logic: 'Saves to both result.csv (minimal) and result_full.csv (all columns)'
+  logic: 'Reorders columns (sim_id, inputs, outputs). Calls _save_to_csv twice: once for result.csv (MINIMAL_RESULT_COLUMNS) and once for result_full.csv (all columns).'
 });
-n('rescore',     860,1730, 290, 50, 'runsim','_re_score_failed_rows()', 'Rewrite NaN-v_pi costs with new C_BASE', {
-  inputs: [],
-  outputs: 'None',
-  logic: 'Re-calculates cost for failed rows (NaN v_pi) using updated C_BASE'
-});
-n('cooling',    1280,1740, 240, 46, 'runsim','cooling_delay(skip)', 'Sleep DELAY_BETWEEN_RUNS seconds', {
+n('cooling',     1240, 1500, 240, 46, 'runsim', 'cooling_delay(skip)', 'Sleep DELAY_BETWEEN_RUNS seconds', {
   inputs: ['skip: bool (optional)'],
   outputs: 'None',
-  logic: 'Pauses DELAY_BETWEEN_RUNS seconds with countdown; skipped if \u22640 or skip=True'
+  logic: 'Pauses DELAY_BETWEEN_RUNS seconds with countdown. Skipped if delay \u22640 or skip=True or is_last simulation.'
 });
 
-// ---- Row 12: _save_to_csv ----
-n('save_csv1',  250,1850, 240, 44, 'runsim','_save_to_csv()', '\u2192 result.csv (13 key columns)', {
+// ---- Row 11 (y=1550): _save_to_csv, CSV file outputs ----
+n('save_csv_min', 700, 1620, 260, 44, 'runsim', '_save_to_csv()', '\u2192 result.csv (minimal columns)', {
   inputs: ['filename: str', 'result_df: DataFrame', 'columns: list (optional)'],
   outputs: 'None',
-  logic: 'Appends single-row DataFrame to CSV, creates with header if new'
+  logic: 'Appends single-row DataFrame to CSV. Creates with header if new, matches existing column order if appending.'
 });
-n('save_csv2',  550,1850, 260, 44, 'runsim','_save_to_csv()', '\u2192 result_full.csv (all columns)', {
+n('save_csv_full',1020, 1620, 270, 44, 'runsim', '_save_to_csv()', '\u2192 result_full.csv (all columns)', {
   inputs: ['filename: str', 'result_df: DataFrame', 'columns: list (optional)'],
   outputs: 'None',
-  logic: 'Appends single-row DataFrame to CSV, creates with header if new'
+  logic: 'Appends single-row DataFrame to CSV. Creates with header if new, matches existing column order if appending.'
 });
-n('debug_rs',    60,1850, 220, 44, 'runsim','debug_prompt()', 'If DEBUG: confirm save', {
-  inputs: ['message: str'],
-  outputs: 'bool',
-  logic: 'Same as debug_prompt \u2014 confirm/skip in DEBUG mode'
-});
+n('f_result',     700, 1730, 150, 38, 'file', 'result.csv');
+n('f_full',      1020, 1730, 180, 38, 'file', 'result_full.csv');
+n('f_errors',     100, 1730, 150, 38, 'file', 'errors.csv');
 
-// ---- Row 13: CSV files ----
-n('f_result',   250,1960, 150, 38, 'file', 'result.csv');
-n('f_full',     550,1960, 180, 38, 'file', 'result_full.csv');
-n('f_errors',    80,1960, 150, 38, 'file', 'errors.csv');
-n('f_raw',     1300,1960, 190, 38, 'file', 'raw/sim_N.csv');
-
-// ---- Cost helper accessors ----
-n('get_cbase',  1280,1610, 240, 42, 'cost', 'get_c_base()', 'Returns current _C_BASE', {
-  inputs: [],
-  outputs: 'float \u2014 current C_BASE',
-  logic: 'Returns module-level _C_BASE'
+// ---- BO helper nodes (internal) ----
+n('norm_params',  960, 340, 240, 40, 'bo', '_normalize_params()', 'raw \u2192 [0,1] via bounds', {
+  inputs: ['params: dict (raw scale)'],
+  outputs: 'dict \u2014 params normalized to [0,1]',
+  logic: 'For each param: (val \u2212 min) / (max \u2212 min) using SWEEP_PARAMETERS bounds.'
 });
-n('reset_cbase',1280,1666, 240, 42, 'cost', 'reset_c_base()', 'Reset to config default', {
-  inputs: [],
-  outputs: 'None',
-  logic: 'Resets _C_BASE to config default'
+n('denorm_params',560, 340, 240, 40, 'bo', '_denormalize_params()', '[0,1] \u2192 raw via bounds', {
+  inputs: ['norm_params: dict ([0,1] scale)'],
+  outputs: 'dict \u2014 params in raw scale',
+  logic: 'For each param: val * (max \u2212 min) + min using SWEEP_PARAMETERS bounds.'
 });
-n('update_cb',  1280,1722, 240, 42, 'cost', 'update_c_base(val)', 'Set _C_BASE, recompute \u03b2', {
-  inputs: ['value: float'],
+n('log_bo_res',  1200, 200, 230, 42, 'main', '_log_bo_result()', 'Log BO iteration result', {
+  inputs: ['result: dict'],
   outputs: 'None',
-  logic: 'Sets _C_BASE, recomputes \u03b2 = 9\u00b7C_BASE/\u03c0\u00b2'
+  logic: 'Logs V_pi, V_pi*L, loss, capacitance, max_dphi for valid results; logs cost for failed results.'
 });
 
 
@@ -366,83 +334,90 @@ n('update_cb',  1280,1722, 240, 42, 'cost', 'update_c_base(val)', 'Set _C_BASE, 
 const edges = [];
 function e(from,to,label,opts){edges.push({from,to,label:label||'',dash:opts?.dash||false,color:opts?.color||'#64748b',exitSide:opts?.exit,enterSide:opts?.enter,exitOff:opts?.exitOff||0,enterOff:opts?.enterOff||0});}
 
-// main → children
-e('main','lhs','Stage 1');
-e('main','c_base_boot','Stage 2b');
-e('main','train','Stage 3',{exit:'right',enter:'top'});
+// main → stage functions
+e('main','skip_init','if SKIP_INITIAL',{exit:'bottom',enter:'top',exitOff:-60});
+e('main','run_initial','else',{exit:'bottom',enter:'top',exitOff:-20});
+e('main','run_bo_loop','Stage 3',{exit:'bottom',enter:'top',exitOff:20});
+e('main','print_final','Stage 4',{exit:'bottom',enter:'top',exitOff:60});
 e('main','setup_log','',{exit:'right',enter:'left'});
 
-// LHS → params.csv → run_init
-e('lhs','f_params','');
-e('f_params','run_init','read');
-e('run_init','run_row','for each row',{exit:'right',enter:'left'});
-e('run_init','log_result','',{exit:'bottom',enter:'top'});
+// _run_initial → LHS + run_init_file
+e('run_initial','gen_lhs','LHS',{exit:'bottom',enter:'top',exitOff:-60});
+e('run_initial','run_init_file','sims',{exit:'bottom',enter:'top',exitOff:60});
 
-// BO flow
-e('train','suggest','optimizer');
-e('suggest','run_row','next_params',{exit:'left',enter:'right'});
-e('main','get_best','Stage 4 best',{exit:'right',enter:'top',exitOff:60});
+// LHS → params.csv → run_init_file
+e('gen_lhs','f_params','');
+e('f_params','run_init_file','read',{exit:'right',enter:'left'});
 
-// run_row internals
+// run_init_file → run_row
+e('run_init_file','run_row','for each row',{exit:'bottom',enter:'top',exitOff:-40});
+
+// _run_bo_loop → train_optimizer (once)
+e('run_bo_loop','train_opt','once',{exit:'bottom',enter:'top'});
+
+// BO loop: suggest → run_row → register
+e('train_opt','suggest','optimizer',{exit:'bottom',enter:'top',exitOff:-40});
+e('suggest','run_row','next_params',{exit:'bottom',enter:'top',exitOff:-60});
+e('run_row','register','result, cost',{exit:'right',enter:'bottom',exitOff:160});
+e('suggest','denorm_params','',{exit:'top',enter:'bottom'});
+e('register','norm_params','',{exit:'top',enter:'bottom'});
+e('train_opt','norm_params','',{exit:'bottom',enter:'top',exitOff:60});
+
+// _run_bo_loop → get_best_result, _log_bo_result
+e('run_bo_loop','log_bo_res','',{exit:'right',enter:'left'});
+e('print_final','get_best','',{exit:'bottom',enter:'top'});
+e('run_bo_loop','get_best','best so far',{exit:'bottom',enter:'top',exitOff:80});
+
+// run_row → full_sim
 e('run_row','full_sim','params');
-e('full_sim','save_error','SimulationError',{exit:'left',enter:'right',color:'#dc2626'});
-e('full_sim','set_charge','CHARGE',{exit:'bottom',enter:'top',exitOff:-100});
-e('full_sim','set_fde','FDE',{exit:'bottom',enter:'top',exitOff:80});
+
+// run_row error path
+e('run_row','save_error','on error',{exit:'left',enter:'right',color:'#dc2626'});
+
+// run_full_simulation → CHARGE cluster
+e('full_sim','set_charge','CHARGE',{exit:'bottom',enter:'top',exitOff:-120});
 e('set_charge','run_charge','');
 e('run_charge','ext_charge','');
+
+// run_full_simulation → FDE cluster
+e('full_sim','set_fde','FDE',{exit:'bottom',enter:'top',exitOff:80});
 e('set_fde','imp_charge','');
 e('imp_charge','run_fde','',{exit:'right',enter:'left'});
 e('run_fde','ext_optical','',{exit:'bottom',enter:'top',exitOff:-40});
-e('imp_charge','ext_optical','',{exit:'bottom',enter:'top',exitOff:60});
 
-// Raw data → run_row → processing (sim_handler returns raw data to run_row, which calls data_processor)
-e('ext_charge','run_row','{V_drain, n, p}',{exit:'top',enter:'bottom',exitOff:-40,enterOff:-80});
-e('ext_optical','run_row','{neff[]}',{exit:'top',enter:'bottom',exitOff:0,enterOff:80});
+// raw data → run_row (return path via run_full_simulation)
 e('run_row','proc_charge','V, n, p',{exit:'bottom',enter:'top',exitOff:-160});
-e('run_row','proc_optical','neff, L, λ',{exit:'bottom',enter:'top',exitOff:80});
+e('run_row','proc_optical','neff, L, \u03bb',{exit:'bottom',enter:'top',exitOff:100});
 
-// Processing sub-calls
+// process_optical → calc sub-functions
 e('proc_optical','calc_dneff','neff',{exit:'bottom',enter:'top',exitOff:-80});
-e('proc_optical','calc_alpha','neff',{exit:'bottom',enter:'top'});
+e('proc_optical','calc_alpha','neff, \u03bb',{exit:'bottom',enter:'top'});
 e('proc_optical','calc_dphi','d_neff',{exit:'bottom',enter:'top',exitOff:80});
 e('calc_dneff','calc_dphi','d_neff[]',{exit:'right',enter:'left'});
 e('calc_dphi','calc_vpi','|d_phi|[]');
 e('calc_alpha','calc_vpi','',{exit:'bottom',enter:'top',enterOff:-40});
 
-// Plotting
-e('proc_charge','plot_cap','',{exit:'bottom',enter:'top'});
-e('proc_optical','plot_opt','',{exit:'right',enter:'left'});
-
-// Processing → build
+// processing → _build_result
 e('proc_charge','build','V_cap, C_pF_cm',{exit:'bottom',enter:'left',exitOff:60});
 e('calc_vpi','build','v_pi, max_dphi',{exit:'bottom',enter:'right',exitOff:-40});
 
-// Build → cost + saves
-e('build','calc_cost','α, v_pi_l, max_dφ',{exit:'bottom',enter:'top',exitOff:-60});
-e('build','upd_cbase','if valid & cost > C_BASE',{exit:'bottom',enter:'top',exitOff:60});
-e('build','save_raw','V, neff, α, dφ',{exit:'right',enter:'left'});
+// _build_result → cost + save + cool
+e('build','calc_cost','\u03b1, v_pi_l',{exit:'bottom',enter:'top',exitOff:-60});
+e('build','save_result','result dict',{exit:'bottom',enter:'top',exitOff:60});
+e('run_row','cooling','',{exit:'bottom',enter:'top',exitOff:160});
 
-// Cost → C_BASE update chain
-e('upd_cbase','rescore','if changed');
-e('upd_cbase','update_cb','calls',{exit:'right',enter:'left'});
+// save_single_result_to_csv → _save_to_csv (x2)
+e('save_result','save_csv_min','MINIMAL_COLS',{exit:'bottom',enter:'top',exitOff:-60});
+e('save_result','save_csv_full','ALL_COLS',{exit:'bottom',enter:'top',exitOff:60});
 
-// Save flow
-e('run_row','save_result','result_dict',{exit:'bottom',enter:'top',exitOff:-80});
-e('run_row','cooling','',{exit:'bottom',enter:'top',exitOff:100});
-e('save_result','save_csv1','MINIMAL_COLS');
-e('save_result','save_csv2','ALL_COLS');
-
-// CSV file outputs
-e('save_csv1','f_result','');
-e('save_csv2','f_full','');
+// _save_to_csv → CSV files
+e('save_csv_min','f_result','');
+e('save_csv_full','f_full','');
 e('save_error','f_errors','');
-e('save_raw','f_raw','');
 
 // Feedback: result.csv → BO (dashed)
-e('f_result','train','read cost col',{dash:true,exit:'top',enter:'bottom',color:'#0891b2'});
+e('f_result','train_opt','read cost col',{dash:true,exit:'top',enter:'bottom',color:'#0891b2'});
 e('f_result','get_best','read',{dash:true,exit:'top',enter:'bottom',color:'#0891b2'});
-e('f_result','c_base_boot','read',{dash:true,exit:'top',enter:'bottom',color:'#d97706'});
-e('f_result','rescore','read/write',{dash:true,exit:'right',enter:'bottom',color:'#d97706'});
 
 
 // ===================== RENDER =====================
@@ -492,12 +467,11 @@ function addZone(x,y,w,h,label,color){
   svgEl.appendChild(g);
 }
 
-addZone(30, 835, 400, 230, 'CHARGE (Electrical)', '#fef2f2');
-addZone(790, 835, 680, 230, 'FDE (Optical)', '#fef2f2');
-addZone(30, 1100, 400, 200, 'CHARGE PROCESSING', '#f5f3ff');
-addZone(720, 1100, 820, 330, 'OPTICAL PROCESSING', '#f5f3ff');
-addZone(400, 1580, 200, 110, 'COST', '#fffbeb');
-addZone(1240, 1580, 310, 200, 'C_BASE STATE', '#fffbeb');
+addZone(30, 815, 410, 230, 'CHARGE (Electrical)', '#fef2f2');
+addZone(790, 815, 680, 230, 'FDE (Optical)', '#fef2f2');
+addZone(30, 1010, 410, 110, 'CHARGE PROCESSING', '#f5f3ff');
+addZone(660, 1010, 850, 340, 'OPTICAL PROCESSING', '#f5f3ff');
+addZone(400, 1470, 380, 110, 'COST', '#fffbeb');
 
 // Draw edges
 function getPort(node, side, off){
