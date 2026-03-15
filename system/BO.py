@@ -1,6 +1,12 @@
 # system/BO.py
 # Bayesian Optimization module for parameter optimization
 # Uses Gaussian Process model and UCB acquisition function
+#
+# Parameters are normalized to [0,1] and costs are log-transformed
+# before registering with the GP. This is necessary because:
+#   - bayes_opt uses an isotropic Matern kernel (single length_scale)
+#   - Parameters span 26 orders of magnitude (w_r ~4e-7 vs doping ~5e17)
+#   - Costs span 8000x (valid: 2-18 vs failed: 1468-18003)
 
 import os
 import config
@@ -10,9 +16,33 @@ from bayes_opt import BayesianOptimization
 from bayes_opt.acquisition import UpperConfidenceBound
 
 
+# ============================================================================
+# Parameter normalization (raw ↔ [0,1])
+# ============================================================================
+
+def _normalize_params(params):
+    """Normalize raw params to [0,1] using SWEEP_PARAMETERS bounds."""
+    return {name: (params[name] - cfg['min']) / (cfg['max'] - cfg['min'])
+            for name, cfg in config.SWEEP_PARAMETERS.items()}
+
+
+def _denormalize_params(norm_params):
+    """Convert [0,1] params back to raw scale."""
+    return {name: norm_params[name] * (cfg['max'] - cfg['min']) + cfg['min']
+            for name, cfg in config.SWEEP_PARAMETERS.items()}
+
+
+# ============================================================================
+# Optimizer lifecycle
+# ============================================================================
+
 def train_optimizer(result_csv_path=None):
     """
-    Trains the Bayesian Optimizer with prior data from result.csv.
+    Creates and trains the Bayesian Optimizer with prior data from result.csv.
+
+    Parameters are normalized to [0,1] and costs are log-transformed
+    before registration. The optimizer should be created ONCE and reused
+    across iterations (not recreated each iteration).
 
     Args:
         result_csv_path: Path to result.csv. Defaults to config.RESULTS_CSV_FILE.
@@ -32,10 +62,9 @@ def train_optimizer(result_csv_path=None):
 
     print(f"  -> Loaded {len(df)} prior data points from {result_csv_path}")
 
-    # Build pbounds: {'w_r': (350e-9, 450e-9), ...}
+    # All parameters normalized to [0,1]
     param_names = list(config.SWEEP_PARAMETERS.keys())
-    pbounds = {name: (cfg['min'], cfg['max'])
-               for name, cfg in config.SWEEP_PARAMETERS.items()}
+    pbounds = {name: (0.0, 1.0) for name in param_names}
 
     optimizer = BayesianOptimization(
         f=None,
@@ -43,6 +72,7 @@ def train_optimizer(result_csv_path=None):
         random_state=42,
         acquisition_function=UpperConfidenceBound(kappa=config.BO_KAPPA),
         verbose=2,
+        allow_duplicate_points=True,
     )
 
     # Register each prior data point
@@ -51,20 +81,19 @@ def train_optimizer(result_csv_path=None):
 
     for index, row in df.iterrows():
         try:
-            # Check all params exist
             if not all(name in row for name in param_names):
                 skipped += 1
                 continue
 
-            params = {name: row[name] for name in param_names}
+            raw_params = {name: row[name] for name in param_names}
 
-            # Cost column is always present (written by run_simulation)
-            if 'cost' not in row or np.isnan(row['cost']):
+            if 'cost' not in row or np.isnan(row['cost']) or row['cost'] <= 0:
                 skipped += 1
                 continue
 
-            # CSV stores positive cost; BO maximizes, so negate
-            optimizer.register(params=params, target=-row['cost'])
+            # Normalize params to [0,1], log-transform cost
+            norm_params = _normalize_params(raw_params)
+            optimizer.register(params=norm_params, target=-np.log(row['cost']))
             registered += 1
 
         except Exception as e:
@@ -82,34 +111,49 @@ def get_next_sample(optimizer):
     """
     Suggests next parameter set to sample using the trained optimizer.
 
+    Returns parameters in raw scale (denormalized from [0,1]).
+
     Args:
         optimizer: Trained BayesianOptimization object
 
     Returns:
-        dict: Next parameter values, or None on failure
+        dict: Next parameter values in raw scale, or None on failure
     """
     if optimizer is None:
         raise ValueError("Optimizer is None. Train the optimizer first.")
 
     try:
-        next_point = optimizer.suggest()
-        if next_point is None:
+        norm_point = optimizer.suggest()
+        if norm_point is None:
             print("  [WARNING] Optimizer suggest() returned None")
             return None
 
-        # Clip to bounds
-        for name, cfg in config.SWEEP_PARAMETERS.items():
-            if name not in next_point:
-                print(f"  [WARNING] Parameter '{name}' missing from suggested point")
-                return None
-            next_point[name] = np.clip(next_point[name], cfg['min'], cfg['max'])
+        # Denormalize from [0,1] back to raw scale
+        raw_point = _denormalize_params(norm_point)
 
-        print(f"  -> Next suggested point: {next_point}")
-        return next_point
+        # Clip to raw bounds (safety)
+        for name, cfg in config.SWEEP_PARAMETERS.items():
+            raw_point[name] = np.clip(raw_point[name], cfg['min'], cfg['max'])
+
+        print(f"  -> Next suggested point: {raw_point}")
+        return raw_point
 
     except Exception as e:
         print(f"  [ERROR] Failed to get next sample: {e}")
         return None
+
+
+def register_result(optimizer, params, cost_value):
+    """
+    Registers a new simulation result with the optimizer.
+
+    Args:
+        optimizer: BayesianOptimization object
+        params: dict of parameter values in raw scale (w_r, h_si, etc.)
+        cost_value: Positive cost value (will be log-transformed and negated)
+    """
+    norm_params = _normalize_params(params)
+    optimizer.register(params=norm_params, target=-np.log(cost_value))
 
 
 def get_best_result(result_csv_path=None):

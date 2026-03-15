@@ -5,21 +5,21 @@
 ```
 +-------------------------------------------------------------+
 |                          main.py                              |
-|          (entry point, BO loop, C_BASE bootstrap)             |
+|              (entry point, BO loop)                           |
 +----------+----------------------+----------------------------+
            |                      |
            v                      v
 +---------------------+  +--------------+
 |  run_simulation.py   |  |    BO.py     |
 |  Orchestration + I/O |  |  Optimizer   |
-|  C_BASE maintenance  |  |  (reads CSV) |
+|                      |  |  (reads CSV) |
 +---+----------+-------+  +--------------+
     |          |
     v          v
 +----------+ +--------------+ +----------+
 |sim_handler| |data_processor| | cost.py  |
 |Lumerical  | | Pure math &  | | Cost fn  |
-|   API     | | calculations | | & C_BASE |
+|   API     | | calculations | | (linear) |
 +----------+ +--------------+ +----------+
     |
     v
@@ -32,11 +32,11 @@
 |--------|---------------|:---:|:---:|
 | **`sim_handler.py`** | Lumerical API -- the ONLY module that touches lumapi sessions | Yes | No |
 | **`data_processor.py`** | Processing & calculations -- pure math, plotting | No | No |
-| **`run_simulation.py`** | Orchestration & data I/O -- CSV read/write, C_BASE maintenance | No | Yes |
-| **`cost.py`** | Cost function & C_BASE state management (Eq. 27) | No | No |
+| **`run_simulation.py`** | Orchestration & data I/O -- CSV read/write | No | Yes |
+| **`cost.py`** | Cost function -- linear weighted sum, no state | No | No |
 | **`config.py`** | Constants, paths, parameter bounds | No | No |
 | **`BO.py`** | Bayesian Optimization -- reads stored cost from CSV, no re-scoring | No | Yes (reads CSV) |
-| **`main.py`** | Entry point, BO loop, C_BASE bootstrap at startup | No | No |
+| **`main.py`** | Entry point, BO loop | No | No |
 
 ---
 
@@ -60,14 +60,6 @@ Every box is a function. Arrows show calls and what data flows between them.
  |  |   loops over each row:              |                                 |
  |  |     calls run_row() per row --------+--> (see run_row diagram below)  |
  |  +-------------------------------------+                                 |
- |                                                                          |
- |  STAGE 2b: Bootstrap C_BASE                                              |
- |  +------------------------------------------+                            |
- |  | cost.calculate_c_base_from_results(df)   |                            |
- |  |   reads result.csv                       |                            |
- |  |   finds max valid cost --> updates       |                            |
- |  |   _C_BASE and _PENALTY_BETA              |                            |
- |  +------------------------------------------+                            |
  |                                                                          |
  |  STAGE 3: BO Loop (repeats MAX_ITERATIONS times)                         |
  |  +-------------------------------------------------------------------+  |
@@ -257,43 +249,24 @@ run_simulation.run_row(row, sim_id, is_last)
 |   |     C_at_v_pi    = interp(v_pi, V_cap, C[])         |
 |   |     v_pi_l       = v_pi * length * 1e3   (V*mm)     |
 |   |   else (failed):                                     |
-|   |     loss_at_v_pi = NaN                               |
+|   |     loss_at_v_pi = max(alpha[])  (worst-case)        |
 |   |     C_at_v_pi    = NaN                               |
-|   |     v_pi_l       = NaN                               |
+|   |     v_pi_l       = V_MAX * length * 1e3  (V*mm)     |
 |   |         |                                            |
 |   |         v                                            |
 |   |   +-------------------------------------------+      |
-|   |   | cost.calculate_cost(alpha, v_pi_l, dphi)  |      |
+|   |   | cost.calculate_cost(alpha, v_pi_l)        |      |
 |   |   |                                           |      |
-|   |   |  if valid (v_pi_l not NaN):               |      |
-|   |   |    norm_loss = (alpha/target)^2            |      |
-|   |   |    norm_vpil = (vpil/target)^2             |      |
+|   |   |  Same formula for valid and failed:       |      |
+|   |   |    norm_loss = alpha/target                |      |
+|   |   |    norm_vpil = vpil/target                 |      |
 |   |   |    cost = w_loss*norm_loss + w_vpil*norm_vpil    |
-|   |   |                                           |      |
-|   |   |  if failed (v_pi_l is NaN):               |      |
-|   |   |    cost = C_BASE + beta*(pi - max_dphi)^2 |      |
 |   |   |                                           |      |
 |   |   |  returns: -cost (negative for BO max)     |      |
 |   |   +-------------------------------------------+      |
 |   |         |                                            |
 |   |         v                                            |
 |   |   cost_value = -neg_cost  (positive for CSV)         |
-|   |                                                      |
-|   |   if valid and cost_value > C_BASE:                  |
-|   |     +------------------------------------------+     |
-|   |     | cost.update_c_base_if_needed(cost_value) |     |
-|   |     |   _C_BASE = cost_value                   |     |
-|   |     |   _PENALTY_BETA = 9*C_BASE/pi^2         |     |
-|   |     +------------------------------------------+     |
-|   |               |                                      |
-|   |               v  (C_BASE changed)                    |
-|   |     +------------------------------------------+     |
-|   |     | _re_score_failed_rows()                  |     |
-|   |     |   reads result.csv                       |     |
-|   |     |   for each row with NaN v_pi_l:          |     |
-|   |     |     recalculate cost with new C_BASE     |     |
-|   |     |   writes updated result.csv              |     |
-|   |     +------------------------------------------+     |
 |   |                                                      |
 |   |   +-------------------------------------------+      |
 |   |   | save_raw_sweep_data(sim_id, V, neff, ...) |      |
@@ -390,18 +363,21 @@ run_simulation.run_row(row, sim_id, is_last)
 |         |                                     |
 |         v                                     |
 |   for each row in df:                         |
-|     params = {w_r, h_si, doping, S, lam, L}  |
-|     target = -row['cost']  (negate for max)   |
+|     params = _normalize_params(raw_params)    |
+|       --> {name: (val-min)/(max-min)} [0,1]   |
+|     target = -log(row['cost'])                |
+|       --> compresses 8000x range to ~12x      |
 |         |                                     |
 |         v                                     |
 |   optimizer.register(params, target)          |
 |     BayesianOptimization(                     |
-|       pbounds from SWEEP_PARAMETERS,          |
+|       pbounds = {name: (0, 1) for all},       |
 |       acquisition = UCB(kappa=2.0)            |
 |     )                                         |
 |         |                                     |
 |         v                                     |
 |   returns: trained optimizer object           |
+|   (created ONCE, reused across iterations)    |
 +-----------------------------------------------+
 ```
 
@@ -417,11 +393,24 @@ run_simulation.run_row(row, sim_id, is_last)
 |       mu + kappa * sigma                   |
 |         |                                  |
 |         v                                  |
-|   next_point = {w_r, h_si, doping, ...}   |
+|   norm_point in [0,1] space               |
+|   raw_point = _denormalize_params(norm)    |
 |   np.clip each param to [min, max]         |
 |         |                                  |
 |         v                                  |
-|   returns: clipped params dict             |
+|   returns: raw params dict                 |
++--------------------------------------------+
+```
+
+### `BO.register_result()` -- In-loop Registration
+
+```
++--------------------------------------------+
+| BO.register_result(optimizer, params, cost)|
+|                                            |
+|   norm_params = _normalize_params(params)  |
+|   target = -log(cost)                      |
+|   optimizer.register(norm_params, target)  |
 +--------------------------------------------+
 ```
 
@@ -447,35 +436,16 @@ run_simulation.run_row(row, sim_id, is_last)
 
 ```
 +-----------------------------------------------------------+
-| cost.calculate_cost(alpha, v_pi_l, max_dphi)              |
+| cost.calculate_cost(alpha, v_pi_l)                        |
 |                                                           |
-|   SUCCESS PATH (v_pi_l is a number):                      |
+|   Same formula for valid and failed simulations:          |
+|   (failed sims use worst-case alpha and V_MAX*L)          |
 |                                                           |
-|     alpha -----> (alpha / 2.0)^2 -----> norm_loss         |
-|     v_pi_l ----> (vpil / 1.0)^2 ------> norm_vpil        |
+|     alpha -----> (alpha / 2.0) -------> norm_loss         |
+|     v_pi_l ----> (vpil / 1.0) --------> norm_vpil        |
 |                                                           |
 |     cost = 0.3 * norm_loss + 0.7 * norm_vpil              |
 |     return -cost                                          |
-|                                                           |
-|   PENALTY PATH (v_pi_l is NaN or None):                   |
-|                                                           |
-|     max_dphi ---> (pi - max_dphi)^2 ---> gap_squared      |
-|                                                           |
-|     cost = C_BASE + (9*C_BASE/pi^2) * gap_squared         |
-|     return -cost                                          |
-+-----------------------------------------------------------+
-
-+-----------------------------------------------------------+
-| cost.calculate_c_base_from_results(df)                    |
-|                                                           |
-|   df (result.csv) --> dropna(v_pi_l, loss)                |
-|         |                                                 |
-|         v                                                 |
-|   for each valid row:                                     |
-|     cost_i = 0.3*(loss/2.0)^2 + 0.7*(vpil/1.0)^2         |
-|                                                           |
-|   C_BASE = max(cost_i)                                    |
-|   PENALTY_BETA = 9 * C_BASE / pi^2                       |
 +-----------------------------------------------------------+
 ```
 
@@ -517,10 +487,7 @@ main.main()
   |     |
   |     |-- _build_result(...)
   |     |     |-- interp(v_pi, ...) --> loss_at_v_pi, C_at_v_pi, v_pi_l
-  |     |     |-- cost.calculate_cost(alpha, v_pi_l, max_dphi) --> neg_cost
-  |     |     |-- cost.update_c_base_if_needed(cost_value)
-  |     |     |     |-- _re_score_failed_rows() if C_BASE changed
-  |     |     |-- save_raw_sweep_data() --> raw/sim_N_raw.csv
+  |     |     |-- cost.calculate_cost(alpha, v_pi_l) --> neg_cost
   |     |     returns: result_dict
   |     |
   |     |-- save_single_result_to_csv(result_dict) --> result.csv, result_full.csv
@@ -552,7 +519,6 @@ main.main()
              |
              | read by BO.train_optimizer()
              | read by BO.get_best_result()
-             | read/write by _re_score_failed_rows()
              v
     +------------------------------------------+
     |   BO loop: train --> suggest --> run_row  |

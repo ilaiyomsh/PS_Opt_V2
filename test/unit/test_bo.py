@@ -19,14 +19,12 @@ class TestCalculateLossFunction:
 
     @pytest.mark.unit
     def test_success_case_basic(self):
-        """Test cost calculation for successful simulation (reached π)."""
+        """Test cost calculation for successful simulation (reached pi)."""
         from cost import calculate_cost as calculate_loss_function
 
-        # Valid v_pi_l indicates success
         cost = calculate_loss_function(
             alpha=1.5,      # dB/cm
             v_pi_l=0.8,     # V*mm
-            max_dphi=np.pi + 0.2
         )
 
         assert cost < 0, "Cost should be negative (for maximization)"
@@ -37,59 +35,29 @@ class TestCalculateLossFunction:
         """Test that successful cost returns negative value for BayesOpt maximization."""
         from cost import calculate_cost as calculate_loss_function
 
-        cost = calculate_loss_function(alpha=2.0, v_pi_l=1.0, max_dphi=np.pi)
+        cost = calculate_loss_function(alpha=2.0, v_pi_l=1.0)
 
         assert cost < 0, "Cost must be negative for BayesOpt maximization"
 
     @pytest.mark.unit
-    def test_penalty_case_nan_vpil(self):
-        """Test penalty when v_pi_l is NaN (didn't reach π)."""
+    def test_failed_worse_than_success(self):
+        """Test that failed sim (worst-case values) gives worse cost than success."""
         from cost import calculate_cost as calculate_loss_function
 
-        cost = calculate_loss_function(
-            alpha=1.5,
-            v_pi_l=np.nan,  # Failed to reach π
-            max_dphi=2.0    # Less than π
-        )
-
-        assert cost < 0, "Penalty cost should also be negative"
-        assert not np.isnan(cost), "Cost should not be NaN even for failed sim"
-
-    @pytest.mark.unit
-    def test_penalty_case_none_vpil(self):
-        """Test penalty when v_pi_l is None."""
-        from cost import calculate_cost as calculate_loss_function
-
-        cost = calculate_loss_function(
-            alpha=1.5,
-            v_pi_l=None,
-            max_dphi=2.5
-        )
-
-        assert cost < 0
-        assert not np.isnan(cost)
-
-    @pytest.mark.unit
-    def test_penalty_larger_than_success(self):
-        """Test that penalty cost is worse (more negative) than success cost."""
-        from cost import calculate_cost as calculate_loss_function
-
-        # Successful case
+        # Successful case: good values
         success_cost = calculate_loss_function(
             alpha=2.0,
             v_pi_l=1.0,
-            max_dphi=np.pi + 0.5
         )
 
-        # Failed case (didn't reach π)
-        penalty_cost = calculate_loss_function(
-            alpha=2.0,
-            v_pi_l=np.nan,
-            max_dphi=2.0  # Below π
+        # Failed case: worst-case values (high loss, high VpiL)
+        failed_cost = calculate_loss_function(
+            alpha=380.0,    # worst-case loss from sweep
+            v_pi_l=1.075,   # V_MAX * L
         )
 
-        # Penalty should be more negative (worse for maximization)
-        assert penalty_cost < success_cost, "Penalty should be worse than success"
+        # Failed should be more negative (worse for maximization)
+        assert failed_cost < success_cost, "Failed (worst-case) should be worse than success"
 
     @pytest.mark.unit
     def test_lower_loss_is_better(self):
@@ -103,13 +71,13 @@ class TestCalculateLossFunction:
 
     @pytest.mark.unit
     def test_lower_vpil_is_better(self):
-        """Test that lower V_π*L gives better (less negative) cost."""
+        """Test that lower V_pi*L gives better (less negative) cost."""
         from cost import calculate_cost as calculate_loss_function
 
         cost_high_vpil = calculate_loss_function(alpha=2.0, v_pi_l=2.0)
         cost_low_vpil = calculate_loss_function(alpha=2.0, v_pi_l=0.5)
 
-        assert cost_low_vpil > cost_high_vpil, "Lower V_π*L should give better cost"
+        assert cost_low_vpil > cost_high_vpil, "Lower V_pi*L should give better cost"
 
     @pytest.mark.unit
     def test_custom_weights(self):
@@ -158,46 +126,50 @@ class TestCalculateLossFunction:
         assert cost < 0
 
     @pytest.mark.unit
-    def test_penalty_increases_with_distance_from_pi(self):
-        """Test that penalty increases as max_dphi gets further from π."""
+    def test_linear_scaling(self):
+        """Test that doubling alpha doubles the loss contribution."""
         from cost import calculate_cost as calculate_loss_function
 
-        # Closer to π (dphi=3.0)
-        cost_close = calculate_loss_function(
-            alpha=1.5, v_pi_l=np.nan, max_dphi=3.0
-        )
+        # Use loss-only weights to isolate the loss contribution
+        weights = {'loss': 1.0, 'vpil': 0.0}
 
-        # Further from π (dphi=1.0)
-        cost_far = calculate_loss_function(
-            alpha=1.5, v_pi_l=np.nan, max_dphi=1.0
-        )
+        cost_1x = calculate_loss_function(alpha=2.0, v_pi_l=1.0, weights=weights)
+        cost_2x = calculate_loss_function(alpha=4.0, v_pi_l=1.0, weights=weights)
 
-        # Being further from π should give worse (more negative) cost
-        assert cost_far < cost_close, "Further from π should give worse penalty"
+        # Doubling alpha should double the (positive) cost
+        assert np.isclose(cost_2x / cost_1x, 2.0, rtol=1e-6), \
+            "Doubling alpha should double the loss contribution"
 
     @pytest.mark.unit
-    def test_penalty_with_zero_phase(self):
-        """Test penalty when max_dphi is zero."""
+    def test_failed_sim_cost_is_finite(self):
+        """Test that worst-case values produce finite, reasonable cost."""
         from cost import calculate_cost as calculate_loss_function
 
-        cost = calculate_loss_function(
-            alpha=1.5, v_pi_l=np.nan, max_dphi=0.0
-        )
+        # Typical worst-case: high loss from sweep, V_MAX * L
+        cost = calculate_loss_function(alpha=380.0, v_pi_l=1.075)
 
-        assert cost < 0
-        assert not np.isnan(cost)
+        assert np.isfinite(cost), "Failed sim cost must be finite"
+        assert cost < 0, "Cost must be negative for maximization"
+        # Should be in a reasonable range, not 1e9
+        assert abs(cost) < 1000, f"Cost {cost} is unreasonably large"
 
     @pytest.mark.unit
-    def test_penalty_with_none_phase(self):
-        """Test penalty when max_dphi is None."""
+    def test_cost_continuity(self):
+        """Test that barely-valid and barely-failed costs are same order of magnitude."""
         from cost import calculate_cost as calculate_loss_function
 
-        cost = calculate_loss_function(
-            alpha=1.5, v_pi_l=np.nan, max_dphi=None
-        )
+        # Barely valid: loss at V_pi, V_pi * L
+        # Imagine a device that just barely reaches pi at V=2.4V with L=0.5mm
+        barely_valid_cost = calculate_loss_function(alpha=10.0, v_pi_l=1.2)
 
-        assert cost < 0
-        assert not np.isnan(cost)
+        # Barely failed: worst-case loss slightly worse, V_MAX * L slightly higher
+        barely_failed_cost = calculate_loss_function(alpha=12.0, v_pi_l=1.25)
+
+        # These should be within an order of magnitude of each other
+        ratio = abs(barely_failed_cost / barely_valid_cost)
+        assert 0.1 < ratio < 10, \
+            f"Barely-valid ({barely_valid_cost:.2f}) and barely-failed ({barely_failed_cost:.2f}) " \
+            f"should be same order of magnitude (ratio={ratio:.2f})"
 
 
 # ============================================================================
@@ -215,7 +187,7 @@ class TestBOIntegration:
         # Generate a range of simulations from good to bad
         costs = []
 
-        # Good: low loss, low vpil, reached π
+        # Good: low loss, low vpil, reached pi
         costs.append(('good', calculate_loss_function(alpha=1.0, v_pi_l=0.5)))
 
         # Medium: moderate values
@@ -224,9 +196,9 @@ class TestBOIntegration:
         # Bad: high values
         costs.append(('bad_values', calculate_loss_function(alpha=5.0, v_pi_l=3.0)))
 
-        # Worst: failed to reach π
+        # Worst: failed sim with worst-case values
         costs.append(('failed', calculate_loss_function(
-            alpha=2.0, v_pi_l=np.nan, max_dphi=2.0
+            alpha=380.0, v_pi_l=1.075
         )))
 
         # Verify ordering: good > medium > bad > failed

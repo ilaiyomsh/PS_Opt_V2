@@ -116,32 +116,6 @@ def save_error_to_csv(sim_id, stage, error, params=None):
     print(f"  -> Error for sim_id {sim_id} (stage: {stage}) saved to {config.ERRORS_CSV_FILE}")
 
 
-
-# ============================================================================
-# C_BASE Maintenance
-# ============================================================================
-
-def _re_score_failed_rows():
-    """Re-score failed rows in result.csv after C_BASE changes."""
-    if not os.path.exists(config.RESULTS_CSV_FILE):
-        return
-
-    df = pd.read_csv(config.RESULTS_CSV_FILE)
-    updated = False
-
-    for idx, row in df.iterrows():
-        if pd.isna(row.get('v_pi_l_Vmm', float('nan'))):
-            max_dphi = row.get('max_dphi_rad', 0.0)
-            if pd.isna(max_dphi):
-                max_dphi = 0.0
-            df.at[idx, 'cost'] = -cost_module.calculate_cost(None, None, max_dphi)
-            updated = True
-
-    if updated:
-        df.to_csv(config.RESULTS_CSV_FILE, index=False)
-        print(f"  -> Re-scored failed rows with updated C_BASE = {cost_module.get_c_base():.4f}")
-
-
 # ============================================================================
 # Simulation Orchestration
 # ============================================================================
@@ -251,7 +225,9 @@ def _log_result(logger_func, result):
                    f"C=[{result.get('C_min_pF_per_cm', 0):.1f}, {result.get('C_max_pF_per_cm', 0):.1f}] pF/cm")
     else:
         logger_func(f"        Output: V_pi=NaN (did not reach pi), max_dphi={result.get('max_dphi_rad', 0):.2f} rad")
-        logger_func(f"        Cost:   PENALTY (is_valid=False)")
+        logger_func(f"        Cost:   {result.get('cost', 0):.4f} "
+                   f"(norm_loss={result.get('norm_loss', 0):.2f}, "
+                   f"norm_vpil={result.get('norm_vpil', 0):.2f})")
 
 
 def run_row(row, sim_id=None, is_last=False):
@@ -336,35 +312,24 @@ def _build_result(sim_id, params, timing, V_cap, C_total_pF_cm,
         C_at_v_pi = np.interp(v_pi, V_cap, C_total_pF_cm)
         v_pi_l = v_pi * float(params['length']) * 1e3  # V*mm
     else:
-        loss_at_v_pi = np.nan
+        loss_at_v_pi = np.max(alpha_dB_per_cm)                    # worst-case from actual sim
         C_at_v_pi = np.nan
-        v_pi_l = np.nan
+        v_pi_l = config.V_MAX * float(params['length']) * 1e3     # V_MAX * L in V·mm
 
-    # Cost
-    neg_cost = cost_module.calculate_cost(
-        alpha=loss_at_v_pi if is_valid else None,
-        v_pi_l=v_pi_l if is_valid else None,
-        max_dphi=max_dphi)
+    # Cost — same formula for valid and failed cases
+    neg_cost = cost_module.calculate_cost(alpha=loss_at_v_pi, v_pi_l=v_pi_l)
     cost_value = -neg_cost  # Positive for CSV storage
 
-    if is_valid:
-        norm_loss = (loss_at_v_pi / config.TARGETS['loss']) ** 2
-        norm_vpil = (v_pi_l / config.TARGETS['vpil']) ** 2
-    else:
-        norm_loss = np.nan
-        norm_vpil = np.nan
-
-    # Update C_BASE if this valid run has a higher cost
-    if is_valid and cost_module.update_c_base_if_needed(cost_value):
-        _re_score_failed_rows()
+    norm_loss = loss_at_v_pi / config.TARGETS['loss']
+    norm_vpil = v_pi_l / config.TARGETS['vpil']
 
     # Print summary
     if is_valid:
         print(f"\n  Result: V_pi*L = {v_pi_l:.4f} V*mm, Loss = {loss_at_v_pi:.2f} dB/cm, C = {C_at_v_pi:.2f} pF/cm")
         print(f"  Cost: {cost_value:.4f} (norm_loss={norm_loss:.2f}, norm_vpil={norm_vpil:.2f})")
     else:
-        print(f"\n  Result: V_pi not reached (max_dphi={max_dphi:.2f} rad)")
-        print(f"  Cost: PENALTY ({cost_value:.4f})")
+        print(f"\n  Result: V_pi not reached (max_dphi={max_dphi:.2f} rad, worst_loss={loss_at_v_pi:.2f} dB/cm)")
+        print(f"  Cost: {cost_value:.4f} (norm_loss={norm_loss:.2f}, norm_vpil={norm_vpil:.2f})")
     print(f"  Timing: CHARGE={timing.get('charge_time', 0):.1f}s, FDE={timing.get('fde_time', 0):.1f}s, Total={total_time:.1f}s")
 
     return {

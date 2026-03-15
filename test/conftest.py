@@ -102,8 +102,8 @@ def sample_results_df():
             'sim_id': 2,
             'w_r': 450e-9, 'h_si': 110e-9, 'doping': 6e17,
             'S': 0.5e-6, 'lambda': 1310e-9, 'length': 0.6e-3,
-            'v_pi_V': np.nan, 'v_pi_l_Vmm': np.nan, 'loss_at_v_pi_dB_per_cm': 2.0,
-            'max_dphi_rad': 2.5, 'cost': -15.0
+            'v_pi_V': np.nan, 'v_pi_l_Vmm': 1.5, 'loss_at_v_pi_dB_per_cm': 2.0,
+            'max_dphi_rad': 2.5, 'cost': 1.35
         },
         {
             'sim_id': 3,

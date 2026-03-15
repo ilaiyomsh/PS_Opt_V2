@@ -26,6 +26,7 @@ The system minimizes two competing objectives:
 ```
 +------------------------------------------------------------------+
 |                       main.py (Entry Point)                       |
+|  1. LHS sampling  2. Initial sims  3. BO loop  4. Final results  |
 +----------------------------------+-------------------------------+
                                    |
           +------------------------+------------------------+
@@ -35,21 +36,24 @@ The system minimizes two competing objectives:
   | Latin Hypercube|                                |   Bayesian    |
   |   Sampling    |                                 | Optimization  |
   +-------+-------+                                 +-------+-------+
-          |                                                 |
-          +------------------------+------------------------+
+          |                                          params [0,1]
+          +------------------------+--------------- log(cost)
                                    v
                      +---------------------------+
                      |    run_simulation.py      |
                      |     (Orchestration)       |
-                     +-------------+-------------+
-                                   v
-                     +---------------------------+
-                     |     sim_handler.py        |
-                     |   (Lumerical Interface)   |
-                     +-------------+-------------+
-                                   |
-          +------------------------+------------------------+
-          v                                                 v
+                     +------+----------+---------+
+                            |          |
+                            v          v
+                     +----------+ +--------------+
+                     |sim_handler| |data_processor|
+                     |Lumerical  | | Pure math &  |
+                     |   API     | | calculations |
+                     +-----+-----+ +------+------+
+                           |              |
+          +----------------+              +---> cost.py
+          |                                  (linear weighted sum)
+          v
   +---------------+                                 +---------------+
   |  CHARGE.ldev  |                                 |   MODE.lms    |
   |  (Electrical) |  ---- charge_data.mat ------>  |   (Optical)   |
@@ -62,7 +66,9 @@ The system minimizes two competing objectives:
 1. **LHS Phase**: Generate initial parameter samples spanning the design space
 2. **CHARGE Simulation**: Calculate carrier distributions under applied voltage
 3. **FDE Simulation**: Compute effective index change and optical loss from carrier data
-4. **BO Phase**: Use results to train a surrogate model and propose optimal next samples
+4. **BO Phase**: Train GP once on all results, then loop: suggest → simulate → register
+   - Parameters normalized to [0,1] before GP (isotropic Matern kernel)
+   - Costs log-transformed before GP (compresses 8000x range to ~12x)
 
 ---
 
@@ -183,9 +189,17 @@ Ensure these files exist in `Lumerical_Files/`:
 
 ### 3. Run Optimization
 
+**Full run** (LHS + simulations + BO):
 ```bash
 cd system
 python main.py
+```
+
+**BO-only run** (using archived results as initial data):
+```bash
+cd system
+python prepare_initial_data.py          # loads first 60 rows from archive
+python main.py                          # set SKIP_INITIAL_SIMS=True in config.py
 ```
 
 ---
@@ -195,13 +209,16 @@ python main.py
 ```
 PS_Opt_V2/
 ├── system/                    # Python source code
-│   ├── main.py               # Entry point
+│   ├── main.py               # Entry point (with file logging)
+│   ├── main_clean.py         # Same logic, print-only (for reading)
 │   ├── config.py             # Configuration settings
 │   ├── LHS.py                # Latin Hypercube Sampling
-│   ├── BO.py                 # Bayesian Optimization
+│   ├── BO.py                 # Bayesian Optimization (params [0,1], log-cost)
+│   ├── cost.py               # Cost function (linear weighted sum)
 │   ├── run_simulation.py     # Simulation orchestration
 │   ├── sim_handler.py        # Lumerical API interface
 │   ├── data_processor.py     # Data extraction & processing
+│   ├── prepare_initial_data.py  # Load archived results for BO
 │   └── results_archive.py    # Results archiving utilities
 │
 ├── Lumerical_Files/          # Simulation templates (tracked via Git LFS)
@@ -247,8 +264,14 @@ After optimization completes, results are saved to `simulation csv/result.csv`:
 - **Low V_pi*L + High Loss**: Fast switching, high loss
 - **High V_pi*L + Low Loss**: Low loss, requires higher voltage
 
-The Bayesian optimizer uses a weighted cost function to balance these trade-offs:
-- `cost = 0.3 * (loss/2.0)² + 0.7 * (vpil/1.0)²`
+The Bayesian optimizer uses a linear weighted cost function to balance these trade-offs:
+- `cost = 0.3 * (loss/2.0) + 0.7 * (vpil/1.0)`
+
+For failed simulations (V_pi not reached), worst-case values are used instead of NaN:
+- `loss = max(loss_sweep)` (worst-case from actual simulation)
+- `vpil = V_MAX * L` (maximum possible)
+
+This keeps the cost landscape continuous — no discontinuity between valid and failed sims.
 
 ---
 

@@ -39,14 +39,14 @@ MINIMAL_RESULT_COLUMNS = [
 ]
 
 # --- Simulation Control Flags ---
-RUN_SIMULATION = True   # Run simulations (False = use existing data)
 HIDE_GUI = True         # Hide Lumerical GUI
 DEBUG = False           # Step-by-step analysis mode
 SHOW_PLOTS = False      # Display plots after extraction
 SKIP_LHS = False        # Skip LHS, use existing params.csv
+SKIP_INITIAL_SIMS = True   # Skip LHS + initial sims, use existing result.csv for BO
 
 # --- Cooling Delay ---
-DELAY_BETWEEN_RUNS = 0  # seconds between runs (0 = no delay)
+DELAY_BETWEEN_RUNS = 180  # seconds between runs (0 = no delay)
 
 # --- LHS Parameters ---
 LHS_N_SAMPLES = 1  # Number of LHS samples
@@ -75,10 +75,9 @@ DOPING_X_MIN = -5e-6  # source_nwell x_min (m)
 DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 
 # --- Bayesian Optimization ---
-MAX_ITERATIONS = 1    # BO iterations
+MAX_ITERATIONS = 10   # BO iterations
 BO_KAPPA = 2.0        # UCB kappa (low=exploit, high=explore)
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}  # dB/cm, V*mm
 TARGETS = {'loss': 2.0, 'vpil': 1.0}      # Normalization targets
-C_BASE_DEFAULT = 10.0                      # Fallback penalty base
 
