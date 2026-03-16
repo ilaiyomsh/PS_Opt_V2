@@ -132,6 +132,7 @@ lomapi_python/
 
 # Run logs (user-specific)
 logs/
+!logs/.gitkeep
 
 # Results archive (user-specific data)
 

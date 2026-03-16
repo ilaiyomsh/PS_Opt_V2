@@ -50,6 +50,7 @@ def train_optimizer(result_csv_path=None):
     Returns:
         BayesianOptimization: Trained optimizer object
     """
+    # load the results csv file
     if result_csv_path is None:
         result_csv_path = config.RESULTS_CSV_FILE
 
@@ -66,6 +67,7 @@ def train_optimizer(result_csv_path=None):
     param_names = list(config.SWEEP_PARAMETERS.keys())
     pbounds = {name: (0.0, 1.0) for name in param_names}
 
+    # create the optimizer
     optimizer = BayesianOptimization(
         f=None,
         pbounds=pbounds,
