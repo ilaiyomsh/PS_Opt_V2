@@ -52,7 +52,7 @@ The system minimizes two competing objectives:
                      +-----+-----+ +------+------+
                            |              |
           +----------------+              +---> cost.py
-          |                                  (linear weighted sum)
+          |                                  (piecewise quadratic penalty)
           v
   +---------------+                                 +---------------+
   |  CHARGE.ldev  |                                 |   MODE.lms    |
@@ -214,7 +214,7 @@ PS_Opt_V2/
 │   ├── config.py             # Configuration settings
 │   ├── LHS.py                # Latin Hypercube Sampling
 │   ├── BO.py                 # Bayesian Optimization (params [0,1], log-cost)
-│   ├── cost.py               # Cost function (linear weighted sum)
+│   ├── cost.py               # Cost function (piecewise quadratic penalty)
 │   ├── run_simulation.py     # Simulation orchestration
 │   ├── sim_handler.py        # Lumerical API interface
 │   ├── data_processor.py     # Data extraction & processing
@@ -264,14 +264,20 @@ After optimization completes, results are saved to `simulation csv/result.csv`:
 - **Low V_pi*L + High Loss**: Fast switching, high loss
 - **High V_pi*L + Low Loss**: Low loss, requires higher voltage
 
-The Bayesian optimizer uses a linear weighted cost function to balance these trade-offs:
-- `cost = 0.3 * (loss/2.0) + 0.7 * (vpil/1.0)`
+The Bayesian optimizer uses a piecewise quadratic penalty cost function to balance these trade-offs:
 
-For failed simulations (V_pi not reached), worst-case values are used instead of NaN:
-- `loss = max(loss_sweep)` (worst-case from actual simulation)
-- `vpil = V_MAX * L` (maximum possible)
+**Valid simulations (Δφ_max ≥ π):**
+```
+cost = 0.3 * (loss/2.0)² + 0.7 * (vpil/1.0)²
+```
 
-This keeps the cost landscape continuous — no discontinuity between valid and failed sims.
+**Failed simulations (Δφ_max < π):**
+```
+cost = C_BASE + β * (π - Δφ_max)²
+```
+where `C_BASE = 35.0` and `β = 9*C_BASE/π² ≈ 31.83`
+
+This piecewise approach provides smooth gradients for GP optimization while strongly penalizing parameter regions that fail to achieve π phase shift. See [METHODOLOGY.md](METHODOLOGY.md) for mathematical details.
 
 ---
 

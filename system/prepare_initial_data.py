@@ -2,7 +2,7 @@
 Prepare initial data for BO from archived results.
 
 Reads the first N rows from an archived result_full.csv,
-recalculates costs using the new linear formula, and saves
+recalculates costs using the piecewise quadratic penalty formula, and saves
 to simulation csv/ as result.csv and result_full.csv.
 
 Usage:
@@ -20,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
+import cost as cost_module
 
 
 def prepare_data(archive_path, n_rows):
@@ -44,21 +45,26 @@ def prepare_data(archive_path, n_rows):
     # For failed rows: v_pi_l = V_MAX * length * 1e3 (V*mm)
     df.loc[failed_mask, 'v_pi_l_Vmm'] = config.V_MAX * df.loc[failed_mask, 'length'] * 1e3
 
-    # --- Recalculate cost for ALL rows with new linear formula ---
-    w_loss = config.FOM_WEIGHTS['loss']
-    w_vpil = config.FOM_WEIGHTS['vpil']
-    t_loss = config.TARGETS['loss']
-    t_vpil = config.TARGETS['vpil']
+    # --- Recalculate cost for ALL rows with piecewise quadratic penalty formula ---
+    # Vectorized calculation using apply
+    df['cost'] = df.apply(
+        lambda row: -cost_module.calculate_cost(
+            alpha=row['loss_at_v_pi_dB_per_cm'],
+            v_pi_l=row['v_pi_l_Vmm'],
+            max_dphi=row['max_dphi_rad']
+        ),
+        axis=1
+    )
 
-    df['norm_loss'] = df['loss_at_v_pi_dB_per_cm'] / t_loss
-    df['norm_vpil'] = df['v_pi_l_Vmm'] / t_vpil
-    df['cost'] = w_loss * df['norm_loss'] + w_vpil * df['norm_vpil']
+    # Keep normalized columns for analysis (linear normalization for reporting)
+    df['norm_loss'] = df['loss_at_v_pi_dB_per_cm'] / config.TARGETS['loss']
+    df['norm_vpil'] = df['v_pi_l_Vmm'] / config.TARGETS['vpil']
 
     # --- Print summary ---
     valid_costs = df.loc[~failed_mask, 'cost']
     failed_costs = df.loc[failed_mask, 'cost']
 
-    print(f"\n  Cost summary (new linear formula):")
+    print(f"\n  Cost summary (piecewise quadratic penalty):")
     print(f"    Valid  — min: {valid_costs.min():.2f}, max: {valid_costs.max():.2f}, median: {valid_costs.median():.2f}")
     print(f"    Failed — min: {failed_costs.min():.2f}, max: {failed_costs.max():.2f}, median: {failed_costs.median():.2f}")
     print(f"    Ratio (max_failed / max_valid): {failed_costs.max() / valid_costs.max():.1f}x")

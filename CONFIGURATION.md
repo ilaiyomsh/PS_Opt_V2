@@ -239,13 +239,28 @@ Normalization targets for the cost function:
 TARGETS = {'loss': 2.0, 'vpil': 1.0}  # dB/cm, V*mm
 ```
 
-### Cost Formula
+### Penalty Constants
 
+For failed simulations that don't reach π phase shift:
+
+```python
+C_BASE = 35.0  # Theoretical worst-case valid simulation cost baseline
+BETA = (9.0 * C_BASE) / (np.pi**2)  # ≈ 31.83
+```
+
+### Cost Formula (Piecewise Quadratic)
+
+**Valid simulations (Δφ_max ≥ π):**
 ```
 cost = 0.3 * (loss / 2.0)² + 0.7 * (vpil / 1.0)²
 ```
 
-Lower cost = better design.
+**Failed simulations (Δφ_max < π):**
+```
+cost = C_BASE + β * (π - Δφ_max)²
+```
+
+Lower cost = better design. The piecewise formulation provides smooth gradients for GP optimization while strongly penalizing invalid parameter regions.
 
 ---
 

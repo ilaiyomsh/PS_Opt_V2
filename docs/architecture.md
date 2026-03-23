@@ -18,8 +18,8 @@
     v          v
 +----------+ +--------------+ +----------+
 |sim_handler| |data_processor| | cost.py  |
-|Lumerical  | | Pure math &  | | Cost fn  |
-|   API     | | calculations | | (linear) |
+|Lumerical  | | Pure math &  | | Piecewise|
+|   API     | | calculations | | Quadratic|
 +----------+ +--------------+ +----------+
     |
     v
@@ -33,7 +33,7 @@
 | **`sim_handler.py`** | Lumerical API -- the ONLY module that touches lumapi sessions | Yes | No |
 | **`data_processor.py`** | Processing & calculations -- pure math, plotting | No | No |
 | **`run_simulation.py`** | Orchestration & data I/O -- CSV read/write | No | Yes |
-| **`cost.py`** | Cost function -- linear weighted sum, no state | No | No |
+| **`cost.py`** | Cost function -- piecewise quadratic penalty based on max_dphi | No | No |
 | **`config.py`** | Constants, paths, parameter bounds | No | No |
 | **`BO.py`** | Bayesian Optimization -- reads stored cost from CSV, no re-scoring | No | Yes (reads CSV) |
 | **`main.py`** | Entry point, BO loop | No | No |
@@ -255,12 +255,11 @@ run_simulation.run_row(row, sim_id, is_last)
 |   |         |                                            |
 |   |         v                                            |
 |   |   +-------------------------------------------+      |
-|   |   | cost.calculate_cost(alpha, v_pi_l)        |      |
+|   |   | cost.calculate_cost(alpha, v_pi_l, max_dphi) |      |
 |   |   |                                           |      |
-|   |   |  Same formula for valid and failed:       |      |
-|   |   |    norm_loss = alpha/target                |      |
-|   |   |    norm_vpil = vpil/target                 |      |
-|   |   |    cost = w_loss*norm_loss + w_vpil*norm_vpil    |
+|   |   |  Branch on max_dphi >= π:                 |      |
+|   |   |    Valid:  cost = w*(α/T)² + w*(VπL/T)²   |      |
+|   |   |    Failed: cost = C_BASE + β*(π-Δφ)²      |      |
 |   |   |                                           |      |
 |   |   |  returns: -cost (negative for BO max)     |      |
 |   |   +-------------------------------------------+      |
@@ -436,16 +435,20 @@ run_simulation.run_row(row, sim_id, is_last)
 
 ```
 +-----------------------------------------------------------+
-| cost.calculate_cost(alpha, v_pi_l)                        |
+| cost.calculate_cost(alpha, v_pi_l, max_dphi)              |
 |                                                           |
-|   Same formula for valid and failed simulations:          |
-|   (failed sims use worst-case alpha and V_MAX*L)          |
+|   Piecewise quadratic penalty formula:                    |
 |                                                           |
-|     alpha -----> (alpha / 2.0) -------> norm_loss         |
-|     v_pi_l ----> (vpil / 1.0) --------> norm_vpil        |
+|   IF max_dphi >= π (Valid Simulation):                    |
+|     norm_loss = alpha / 2.0                               |
+|     norm_vpil = v_pi_l / 1.0                              |
+|     cost = 0.3 * norm_loss² + 0.7 * norm_vpil²            |
 |                                                           |
-|     cost = 0.3 * norm_loss + 0.7 * norm_vpil              |
-|     return -cost                                          |
+|   ELSE (Failed Simulation):                               |
+|     cost = C_BASE + BETA * (π - max_dphi)²                |
+|     where C_BASE = 35.0, BETA ≈ 31.83                     |
+|                                                           |
+|   return -cost  (negative for BO maximization)            |
 +-----------------------------------------------------------+
 ```
 

@@ -58,8 +58,8 @@ def _skip_initial(results_path):
         print("Run prepare_initial_data.py first, or set SKIP_INITIAL_SIMS=False.")
         return
 
-    results_df = pd.read_csv(results_path)
-    valid_count = results_df['v_pi_V'].notna().sum()
+    results_df = pd.read_csv(results_path) # Should we skip header?
+    valid_count = results_df['v_pi_V'].notna().sum() # Count how many rows have a valid v_pi_V value (not NaN)
     print(f"[INFO] Using existing result.csv: {len(results_df)} rows ({valid_count} valid)")
 
 

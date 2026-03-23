@@ -53,6 +53,7 @@ def cooling_delay(skip=False):
 
 def _save_to_csv(filename, result_df, columns=None):
     """Appends a single-row DataFrame to CSV, creating the file if needed."""
+    # If columns is specified, only save those columns (if they exist in result_df).
     if columns is not None:
         cols_to_use = [c for c in columns if c in result_df.columns]
         df_to_save = result_df[cols_to_use].copy()
@@ -316,8 +317,8 @@ def _build_result(sim_id, params, timing, V_cap, C_total_pF_cm,
         C_at_v_pi = np.nan
         v_pi_l = config.V_MAX * float(params['length']) * 1e3     # V_MAX * L in V·mm
 
-    # Cost — same formula for valid and failed cases
-    neg_cost = cost_module.calculate_cost(alpha=loss_at_v_pi, v_pi_l=v_pi_l)
+    # Cost — piecewise quadratic penalty based on max_dphi
+    neg_cost = cost_module.calculate_cost(alpha=loss_at_v_pi, v_pi_l=v_pi_l, max_dphi=max_dphi)
     cost_value = -neg_cost  # Positive for CSV storage
 
     norm_loss = loss_at_v_pi / config.TARGETS['loss']

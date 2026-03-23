@@ -263,6 +263,15 @@ Where:
 - `C_base` = max cost from valid simulations
 - `β = 9 × C_base / π²`
 
+### 7.3 Penalty Constants
+
+The global penalty constants are defined in `config.py`:
+
+- **`C_BASE = 35.0`** - Theoretical worst-case valid simulation cost baseline
+- **`β = (9.0 × C_BASE) / π² ≈ 31.83`** - Quadratic penalty coefficient
+
+These constants ensure failed simulations are penalized proportionally to their phase deficit while maintaining gradient continuity at the π boundary. The quadratic form provides stationary, smooth gradients that guide the Gaussian Process optimizer toward valid parameter regions without breaking the GP covariance kernel.
+
 ---
 
 ## 8. Data Flow Summary
