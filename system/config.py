@@ -40,8 +40,8 @@ MINIMAL_RESULT_COLUMNS = [
 ]
 
 # --- Simulation Control Flags ---
-HIDE_GUI = False         # Hide Lumerical GUI
-DEBUG = True           # Step-by-step analysis mode
+HIDE_GUI = True         # Hide Lumerical GUI
+DEBUG = False           # Step-by-step analysis mode
 SHOW_PLOTS = False      # Display plots after extraction
 RUN_SIMULATION = True   # Run actual Lumerical simulations (False = setup only, for testing)
 SKIP_LHS = False        # Skip LHS, use existing params.csv
@@ -60,10 +60,23 @@ LHS_RANDOM_SEED = None          # None = random seed
 SWEEP_PARAMETERS = {
     'w_r':     {'min': 350e-9,  'max': 500e-9,  'unit': 'm'},    # Waveguide width (350nm - 500nm)
     'h_si':    {'min': 70e-9,   'max': 130e-9,  'unit': 'm'},    # Silicon height (70nm - 130nm)
-    'doping':  {'min': 1e17,    'max': 1e18,    'unit': 'cm^-3'},  # Doping concentration (reduced to 1e18 max to avoid solver error)
+    'doping':  {'min': 1e17,    'max': 1e20,    'unit': 'cm^-3'},  # Doping concentration 
     'S':       {'min': 0,       'max': 0.8e-6,  'unit': 'm'},    # Junction offset (0nm - 800nm)
     'lambda':  {'min': 1260e-9, 'max': 1360e-9, 'unit': 'm'},    # Wavelength (1260nm - 1360nm)
     'length':  {'min': 0.1e-3,  'max': 1.0e-3,  'unit': 'm'}     # Device length (0.1mm - 1.0mm)
+}
+
+# --- Discrete Parameter Configuration ---
+# Restrict parameters to discrete values (e.g., foundry-specific etching depths)
+# Format: parameter_name: {'enabled': bool, 'values': array (sorted, SI units), 'method': 'nearest'}
+# Note: Discrete grids must be within corresponding SWEEP_PARAMETERS bounds
+DISCRETE_PARAMETERS = {
+    'h_si': {
+        'enabled': True,  # Set to False to disable discrete snapping for h_si
+        'values': np.arange(70e-9, 131e-9, 10e-9),  # [70nm, 80nm, 90nm, ..., 130nm] - within bounds [70nm, 130nm]
+        'method': 'nearest'  # Snapping method: 'nearest' (only option currently supported)
+    },
+    # Add more parameters here as needed (e.g., 'lambda', 'w_r', etc.)
 }
 
 
@@ -77,11 +90,11 @@ DOPING_X_MIN = -5e-6  # source_nwell x_min (m)
 DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 
 # --- Bayesian Optimization ---
-MAX_ITERATIONS = 5   # BO iterations
+MAX_ITERATIONS = 10   # BO iterations
 BO_KAPPA = 2.0        # UCB kappa (low=exploit, high=explore)
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}  # dB/cm, V*mm
-TARGETS = {'loss': 2.0, 'vpil': 1.0}      # Normalization targets
+TARGETS = {'loss': 20.0, 'vpil': 1.0}      # Normalization targets
 
 # Piecewise Penalty Constants for failed phase shifts
 C_BASE = 35.0  # Theoretical worst-case valid simulation cost baseline

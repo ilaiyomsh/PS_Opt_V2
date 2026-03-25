@@ -28,6 +28,16 @@ def main():
     start_time = datetime.now()
     config.RUN_TIMESTAMP = start_time.strftime("%Y%m%d_%H%M%S")
 
+    # Log discrete parameter configuration
+    enabled_discrete = [k for k, v in config.DISCRETE_PARAMETERS.items() if v.get('enabled', False)]
+    if enabled_discrete:
+        print(f"[INFO] Discrete Parameters Enabled: {enabled_discrete}")
+        for param in enabled_discrete:
+            grid = config.DISCRETE_PARAMETERS[param]['values']
+            print(f"       {param}: {len(grid)} values from {grid[0]:.4e} to {grid[-1]:.4e}")
+    else:
+        print("[INFO] Discrete Parameters: None enabled (continuous optimization)")
+
     # --- Steps 1 & 2: Get initial results ---
     if config.SKIP_INITIAL_SIMS:
         _skip_initial(config.RESULTS_CSV_FILE)
@@ -74,7 +84,7 @@ def _run_initial(params_path, results_path):
     else:
         print(f"Generating {config.LHS_N_SAMPLES} LHS samples...")
         LHS.generate_lhs_samples()
-        print(f"Saved to: {params_path}")
+        # print(f"Saved to: {params_path}") # appears in LHS module, no need to repeat here
 
     # --- Step 2: Initial Simulations ---
     print(f"\nRunning initial simulations from {params_path}...")

@@ -2,6 +2,7 @@
 # Latin Hypercube Sampling (LHS) module for generating initial parameter samples
 
 import config
+import sim_handler
 import pandas as pd
 import numpy as np
 from scipy.stats import qmc
@@ -59,7 +60,9 @@ def generate_lhs_samples(start_sim_id=None):
         # Convert to SMT criteria names
         criterion = 'm' if method == 'maximin' else 'ese'
         # SMT performs scaling automatically based on xlimits
-        sampling = SMT_LHS(xlimits=limits, criterion=criterion, random_state=seed)
+        # Note: SMT LHS does not support random_state parameter in newer versions
+        np.random.seed(seed)  # Set numpy seed for reproducibility
+        sampling = SMT_LHS(xlimits=limits, criterion=criterion)
         samples = sampling(n_samples)
 
     else:
@@ -71,6 +74,16 @@ def generate_lhs_samples(start_sim_id=None):
     # Round to 4 significant figures
     for col in param_names:
         df[col] = df[col].apply(lambda x: float(f'{x:.4g}'))
+    
+    # Snap parameters to discrete grids if enabled
+    for param in param_names:
+        df[param] = df[param].apply(lambda x: sim_handler.snap_to_discrete(param, x))
+    
+    # Log discrete values used for parameters with discrete grids
+    for param in param_names:
+        if param in config.DISCRETE_PARAMETERS and config.DISCRETE_PARAMETERS[param].get('enabled', False):
+            unique_values = sorted(df[param].unique())
+            print(f"  {param} discrete values used ({len(unique_values)}): {[f'{v:.4e}' for v in unique_values]}")
 
     # Add simulation ID as first column (continue from start_sim_id)
     df.insert(0, 'sim_id', range(start_sim_id, start_sim_id + len(df)))

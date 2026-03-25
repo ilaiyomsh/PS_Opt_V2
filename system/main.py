@@ -98,6 +98,17 @@ def main():
     log_raw(f"  - FOM_WEIGHTS: {config.FOM_WEIGHTS}")
     log_raw(f"  - BO_KAPPA: {config.BO_KAPPA}")
     log_raw(f"  - Log file: {log_path}")
+    
+    # Log discrete parameter configuration
+    enabled_discrete = [k for k, v in config.DISCRETE_PARAMETERS.items() if v.get('enabled', False)]
+    if enabled_discrete:
+        log_raw(f"  - Discrete Parameters Enabled: {enabled_discrete}")
+        for param in enabled_discrete:
+            grid = config.DISCRETE_PARAMETERS[param]['values']
+            log_raw(f"    • {param}: {len(grid)} values from {grid[0]:.4e} to {grid[-1]:.4e}")
+    else:
+        log_raw(f"  - Discrete Parameters: None enabled (continuous optimization)")
+    
     log_raw("")
 
     # --- Steps 1 & 2: Get initial results ---

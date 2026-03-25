@@ -26,6 +26,171 @@ class SimulationError(Exception):
         super().__init__(f"[{stage}] {message}")
 
 
+# ============================================================================
+# DISCRETE PARAMETER SNAPPING
+# ============================================================================
+
+def snap_to_discrete(param_name, value):
+    """Snap a parameter value to the nearest discrete grid point if enabled.
+    
+    Args:
+        param_name (str): Parameter name (e.g., 'h_si')
+        value (float or np.ndarray): Continuous parameter value(s) to snap
+    
+    Returns:
+        float or np.ndarray: Snapped value(s), same type as input
+    
+    Notes:
+        - If parameter not in DISCRETE_PARAMETERS or disabled, returns original value
+        - Uses nearest-neighbor snapping with np.searchsorted for efficiency
+        - Handles both scalar floats and numpy arrays
+    """
+    # Check if parameter has discrete grid enabled
+    if param_name not in config.DISCRETE_PARAMETERS:
+        return value
+    
+    param_config = config.DISCRETE_PARAMETERS[param_name]
+    if not param_config.get('enabled', False):
+        return value
+    
+    grid = param_config['values']
+    is_scalar = np.isscalar(value)
+    
+    # Convert to array for uniform processing
+    value_array = np.atleast_1d(value)
+    
+    # Find nearest grid point for each value
+    # searchsorted finds insertion index, we choose closest neighbor
+    indices = np.searchsorted(grid, value_array)
+    
+    # Handle edge cases and find actual nearest
+    snapped = np.zeros_like(value_array)
+    for i, (val, idx) in enumerate(zip(value_array, indices)):
+        if idx == 0:
+            snapped[i] = grid[0]
+        elif idx == len(grid):
+            snapped[i] = grid[-1]
+        else:
+            # Choose closer of two neighbors
+            lower_dist = abs(val - grid[idx - 1])
+            upper_dist = abs(val - grid[idx])
+            snapped[i] = grid[idx - 1] if lower_dist <= upper_dist else grid[idx]
+    
+    # Return same type as input
+    return float(snapped[0]) if is_scalar else snapped
+
+
+def snap_params_dict(params_dict):
+    """Snap all parameters in a dictionary to their discrete grids if enabled.
+    
+    Args:
+        params_dict (dict): Dictionary of parameter name → value pairs
+    
+    Returns:
+        dict: New dictionary with snapped values (does not modify input)
+    
+    Notes:
+        - Logs at debug level when parameter values are changed by snapping
+        - Only processes parameters that appear in DISCRETE_PARAMETERS with enabled=True
+    """
+    snapped_dict = {}
+    
+    for param_name, value in params_dict.items():
+        snapped_value = snap_to_discrete(param_name, value)
+        snapped_dict[param_name] = snapped_value
+        
+        # Log if snapping occurred (debug level to avoid spam)
+        if hasattr(value, '__iter__') and not isinstance(value, str):
+            # Handle array case
+            if not np.allclose(value, snapped_value, rtol=0, atol=1e-15):
+                print(f"[DEBUG] Snapped {param_name}: array modified")
+        else:
+            # Handle scalar case
+            if abs(float(value) - float(snapped_value)) > 1e-15:
+                print(f"[DEBUG] Snapped {param_name}: {value:.4e} → {snapped_value:.4e}")
+    
+    return snapped_dict
+
+
+def verify_discrete_compliance(df, param_name):
+    """Verify that all values in a DataFrame column comply with discrete grid.
+    
+    Args:
+        df (pd.DataFrame): DataFrame containing parameter column
+        param_name (str): Name of parameter column to check
+    
+    Returns:
+        tuple: (is_compliant: bool, violations: list of (index, value) tuples)
+    
+    Notes:
+        - Tolerance for floating-point comparison is 1e-12
+        - Returns (True, []) if parameter has no discrete grid or is disabled
+    """
+    # Check if parameter has discrete grid enabled
+    if param_name not in config.DISCRETE_PARAMETERS:
+        return (True, [])
+    
+    param_config = config.DISCRETE_PARAMETERS[param_name]
+    if not param_config.get('enabled', False):
+        return (True, [])
+    
+    if param_name not in df.columns:
+        return (True, [])
+    
+    grid = param_config['values']
+    violations = []
+    tolerance = 1e-12
+    
+    for idx, value in df[param_name].items():
+        # Check if value is close to any grid point
+        if not np.any(np.abs(grid - value) < tolerance):
+            violations.append((idx, value))
+    
+    is_compliant = len(violations) == 0
+    return (is_compliant, violations)
+
+
+def validate_discrete_config():
+    """Validate that discrete parameter grids are within SWEEP_PARAMETERS bounds.
+    
+    Raises:
+        ValueError: If any discrete grid value is outside its parameter bounds
+    
+    Notes:
+        - Called at module import to catch configuration errors early
+        - Only validates enabled discrete parameters
+    """
+    for param_name, param_config in config.DISCRETE_PARAMETERS.items():
+        if not param_config.get('enabled', False):
+            continue
+        
+        if param_name not in config.SWEEP_PARAMETERS:
+            raise ValueError(
+                f"Discrete parameter '{param_name}' not found in SWEEP_PARAMETERS"
+            )
+        
+        grid = param_config['values']
+        bounds = config.SWEEP_PARAMETERS[param_name]
+        min_val, max_val = bounds['min'], bounds['max']
+        
+        if np.any(grid < min_val) or np.any(grid > max_val):
+            violating = grid[(grid < min_val) | (grid > max_val)]
+            raise ValueError(
+                f"Discrete grid for '{param_name}' contains values outside bounds "
+                f"[{min_val:.4e}, {max_val:.4e}]: {violating}"
+            )
+    
+    print("[INFO] Discrete parameter configuration validated successfully")
+
+
+# Validate configuration at module import
+validate_discrete_config()
+
+
+# ============================================================================
+# LUMERICAL DATA EXTRACTION
+# ============================================================================
+
 def extract_raw_charge_data(charge_session):
     """Extract V_drain, n, p arrays from CHARGE session via getresult.
 

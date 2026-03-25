@@ -247,6 +247,18 @@ def run_row(row, sim_id=None, is_last=False):
 
     if sim_id is None:
         sim_id = int(params.get('sim_id', 0))
+    
+    # Snap parameters to discrete grids if enabled
+    snapped_params = sim_handler.snap_params_dict(params)
+    
+    # Log if snapping occurred
+    if any(snapped_params.get(k) != params.get(k) for k in params if k != 'sim_id'):
+        for k in params:
+            if k != 'sim_id' and snapped_params.get(k) != params.get(k):
+                print(f"[INFO] Snapped {k}: {params[k]:.4e} → {snapped_params[k]:.4e}")
+    
+    # Use snapped parameters for simulation
+    params = snapped_params
 
     print(f"\n{'='*50}")
     print(f"Running simulation {sim_id}")

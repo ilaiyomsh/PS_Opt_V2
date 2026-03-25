@@ -10,6 +10,7 @@
 
 import os
 import config
+import sim_handler
 import pandas as pd
 import numpy as np
 from bayes_opt import BayesianOptimization
@@ -154,6 +155,14 @@ def register_result(optimizer, params, cost_value):
         params: dict of parameter values in raw scale (w_r, h_si, etc.)
         cost_value: Positive cost value (will be log-transformed and negated)
     """
+    # Validate discrete compliance (defensive check)
+    snapped = sim_handler.snap_params_dict(params)
+    for k in config.SWEEP_PARAMETERS.keys():
+        if k in params and k in snapped:
+            if abs(params[k] - snapped[k]) > 1e-12:
+                print(f"[WARNING] Continuous value detected in BO registration: "
+                      f"{k}={params[k]:.4e} (should be {snapped[k]:.4e})")
+    
     norm_params = _normalize_params(params)
     optimizer.register(params=norm_params, target=-np.log(cost_value))
 
