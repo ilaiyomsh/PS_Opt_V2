@@ -249,6 +249,9 @@ def _run_bo_loop(results_path):
                 bo_sim_id += 1
                 continue
 
+            # Add current kappa to result
+            result['kappa'] = BO.get_current_kappa(optimizer)
+
             # Register with optimizer
             BO.register_result(optimizer, result, result['cost'])
 

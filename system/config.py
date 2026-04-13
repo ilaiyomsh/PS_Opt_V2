@@ -36,7 +36,7 @@ MINIMAL_RESULT_COLUMNS = [
     'sim_id',
     'w_r', 'h_si', 'doping', 'S', 'lambda', 'length',  # Input params
     'v_pi_V', 'v_pi_l_Vmm', 'loss_at_v_pi_dB_per_cm', 'C_at_v_pi_pF_per_cm',  # Key outputs
-    'max_dphi_rad', 'cost'  # Phase shift & BO metric
+    'max_dphi_rad', 'cost', 'kappa'  # Phase shift, BO metric & kappa
 ]
 
 # --- Simulation Control Flags ---
@@ -45,10 +45,10 @@ DEBUG = False           # Step-by-step analysis mode
 SHOW_PLOTS = False      # Display plots after extraction
 RUN_SIMULATION = True   # Run actual Lumerical simulations (False = setup only, for testing)
 SKIP_LHS = False        # Skip LHS, use existing params.csv
-SKIP_INITIAL_SIMS = False   # Skip LHS + initial sims, use existing result.csv for BO
+SKIP_INITIAL_SIMS = True   # Skip LHS + initial sims, use existing result.csv for BO
 
 # --- Cooling Delay ---
-DELAY_BETWEEN_RUNS = 60  # seconds between runs (0 = no delay)
+DELAY_BETWEEN_RUNS = 180  # seconds between runs (0 = no delay)
 
 # --- LHS Parameters ---
 LHS_N_SAMPLES = 10  # Number of LHS samples
@@ -90,8 +90,9 @@ DOPING_X_MIN = -5e-6  # source_nwell x_min (m)
 DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 
 # --- Bayesian Optimization ---
-MAX_ITERATIONS = 10   # BO iterations
+MAX_ITERATIONS = 100   # BO iterations
 BO_KAPPA = 2.0        # UCB kappa (low=exploit, high=explore)
+BO_KAPPA_DECAY = 0.98  # Multiply kappa by this each iteration (1.0 = no decay)
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}  # dB/cm, V*mm
 TARGETS = {'loss': 20.0, 'vpil': 1.0}      # Normalization targets

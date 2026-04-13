@@ -73,7 +73,11 @@ def train_optimizer(result_csv_path=None):
         f=None,
         pbounds=pbounds,
         random_state=42,
-        acquisition_function=UpperConfidenceBound(kappa=config.BO_KAPPA),
+        acquisition_function=UpperConfidenceBound(
+            kappa=config.BO_KAPPA,
+            exploration_decay=config.BO_KAPPA_DECAY,
+            exploration_decay_delay=0,
+        ),
         verbose=2,
         allow_duplicate_points=True,
     )
@@ -165,6 +169,14 @@ def register_result(optimizer, params, cost_value):
     
     norm_params = _normalize_params(params)
     optimizer.register(params=norm_params, target=-np.log(cost_value))
+
+
+def get_current_kappa(optimizer):
+    """Returns the current effective kappa from the optimizer's acquisition function."""
+    try:
+        return optimizer.acquisition_function.kappa
+    except AttributeError:
+        return None
 
 
 def get_best_result(result_csv_path=None):

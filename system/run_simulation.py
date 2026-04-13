@@ -143,13 +143,28 @@ def run_init_file(params_csv_path=None, logger_func=None):
     params_df = pd.read_csv(params_csv_path, skiprows=[1])
     print(f"Loaded {len(params_df)} parameter sets")
 
+    # Resume support: skip sim_ids already in result.csv
+    completed_ids = set()
+    if os.path.exists(config.RESULTS_CSV_FILE):
+        existing_df = pd.read_csv(config.RESULTS_CSV_FILE)
+        completed_ids = set(existing_df['sim_id'].astype(int).tolist())
+        if completed_ids:
+            print(f"Resuming: {len(completed_ids)} simulations already completed, skipping them")
+
     successful = 0
     failed = 0
+    skipped = 0
     total_sims = len(params_df)
 
     for idx, row in params_df.iterrows():
         sim_id = int(row['sim_id'])
         is_last = (idx == len(params_df) - 1)
+
+        # Skip already completed simulations
+        if sim_id in completed_ids:
+            skipped += 1
+            print(f"\n--- Simulation {sim_id}/{total_sims} --- SKIPPED (already in result.csv)")
+            continue
         print(f"\n--- Simulation {sim_id}/{total_sims} ---")
 
         if logger_func:
@@ -187,7 +202,7 @@ def run_init_file(params_csv_path=None, logger_func=None):
 
     # Summary
     print(f"\n{'='*60}")
-    print(f"Initial Simulations Summary: {successful}/{total_sims} successful, {failed} failed")
+    print(f"Initial Simulations Summary: {successful}/{total_sims} successful, {failed} failed, {skipped} skipped (resumed)")
     print(f"Results saved to: {config.RESULTS_CSV_FILE}")
     print(f"{'='*60}")
 
