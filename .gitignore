@@ -47,15 +47,12 @@ venv.bak/
 .venv
 
 # Lumerical simulation files
-# Note: *.ldev and *.lms are tracked via Git LFS (see .gitattributes)
 *.mat
 *.log
 *.ldf
 
-# Lumerical_Files directory - ignore generated data
-Lumerical_Files/**/*.mat
-Lumerical_Files/**/*.log
-Lumerical_Files/**/
+# Lumerical_Files directory - ignore entirely
+Lumerical_Files/
 
 # Simulation CSV files (ignore results but keep structure)
 simulation csv/*.csv
