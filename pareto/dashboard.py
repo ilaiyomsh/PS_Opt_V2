@@ -19,40 +19,38 @@ from pareto_front import (
     RESULTS_CSV,
     build_distributions,
     build_study,
-    load_valid_results,
 )
 
 st.set_page_config(page_title="Pareto Front – PIN PS Optimizer", layout="wide")
 
 
 # ---------------------------------------------------------------------------
-#  Data loading (cached so it doesn't re-run on every interaction)
+#  Data loading (cached — raw, unfiltered)
 # ---------------------------------------------------------------------------
 @st.cache_data
-def load_data():
-    valid = load_valid_results(RESULTS_CSV)
+def load_raw():
+    df = pd.read_csv(RESULTS_CSV)
+    needed = list(OBJECTIVES) + ["v_pi_V"]
+    df["reached_pi"] = df[needed].notna().all(axis=1)
+    return df
+
+
+def compute_pareto(valid_df):
+    """Run Optuna study on valid rows and return set of Pareto row indices."""
+    if valid_df.empty:
+        return set()
     distributions = build_distributions()
-    study = build_study(valid, distributions)
-    pareto_idx = sorted(t.number for t in study.best_trials)
-    is_pareto = np.zeros(len(valid), dtype=bool)
-    is_pareto[pareto_idx] = True
-    valid["is_pareto"] = is_pareto
-    return valid
+    study = build_study(valid_df, distributions)
+    return {t.number for t in study.best_trials}
 
 
 def recalculate_cost(df, w_loss, w_vpil, t_loss, t_vpil):
-    """Recompute cost column using custom weights/targets (valid sims only)."""
     norm_loss = df[OBJECTIVES[1]] / t_loss
     norm_vpil = df[OBJECTIVES[0]] / t_vpil
     return w_loss * (norm_loss ** 2) + w_vpil * (norm_vpil ** 2)
 
 
 def find_knee(pareto_df):
-    """
-    Find the knee point of the Pareto front using max perpendicular distance
-    from the line connecting the two extreme endpoints.
-    Objectives are normalized to [0,1] so both axes weigh equally.
-    """
     if len(pareto_df) < 3:
         return None
     x = pareto_df[OBJECTIVES[0]].values
@@ -71,7 +69,6 @@ def find_knee(pareto_df):
 
 
 def to_display_units(df: pd.DataFrame, cost_col: str = "cost") -> pd.DataFrame:
-    """Return a copy with human-readable units for presentation."""
     d = pd.DataFrame()
     d["Sim ID"] = df["sim_id"].astype(int)
     d["w_r (nm)"] = (df["w_r"] * 1e9).round(1)
@@ -80,25 +77,56 @@ def to_display_units(df: pd.DataFrame, cost_col: str = "cost") -> pd.DataFrame:
     d["S (nm)"] = (df["S"] * 1e9).round(1)
     d["λ (nm)"] = (df["lambda"] * 1e9).round(1)
     d["Length (mm)"] = (df["length"] * 1e3).round(3)
-    d["V_π (V)"] = df["v_pi_V"].round(4)
-    d["V_π·L (V·mm)"] = df["v_pi_l_Vmm"].round(4)
-    d["Loss (dB/cm)"] = df["loss_at_v_pi_dB_per_cm"].round(2)
-    d["Cost"] = df[cost_col].round(4)
+    if "v_pi_V" in df.columns:
+        d["V_π (V)"] = df["v_pi_V"].round(4)
+    if OBJECTIVES[0] in df.columns:
+        d["V_π·L (V·mm)"] = df[OBJECTIVES[0]].round(4)
+    if OBJECTIVES[1] in df.columns:
+        d["Loss (dB/cm)"] = df[OBJECTIVES[1]].round(2)
+    if cost_col in df.columns:
+        d["Cost"] = df[cost_col].round(4)
+    if "reached_pi" in df.columns:
+        d["Reached π"] = df["reached_pi"]
     return d
 
 
 # ---------------------------------------------------------------------------
-#  Load
+#  Load raw data
 # ---------------------------------------------------------------------------
-valid = load_data()
+raw_df = load_raw()
+n_total = len(raw_df)
+n_reached_pi = int(raw_df["reached_pi"].sum())
 
 # ---------------------------------------------------------------------------
-#  Sidebar – Filters
+#  Sidebar – Data Filters
 # ---------------------------------------------------------------------------
-st.sidebar.header("Filters")
+st.sidebar.header("Data Filters")
 
-loss_min, loss_max = float(valid[OBJECTIVES[1]].min()), float(valid[OBJECTIVES[1]].max())
-vpil_min, vpil_max = float(valid[OBJECTIVES[0]].min()), float(valid[OBJECTIVES[0]].max())
+only_reached_pi = st.sidebar.checkbox("Only sims that reached π", value=True)
+max_loss = st.sidebar.slider(
+    "Max Loss cutoff (dB/cm)", min_value=0.0,
+    max_value=float(raw_df[OBJECTIVES[1]].max()) if raw_df[OBJECTIVES[1]].notna().any() else 200.0,
+    value=float(MAX_LOSS_DB_PER_CM), step=5.0,
+)
+
+st.sidebar.caption(f"Total rows: {n_total} | Reached π: {n_reached_pi}")
+
+valid = raw_df.copy()
+if only_reached_pi:
+    valid = valid[valid["reached_pi"]].copy()
+valid = valid[valid[OBJECTIVES[1]].fillna(np.inf) <= max_loss].copy().reset_index(drop=True)
+
+# Compute Pareto on the filtered valid set
+pareto_indices = compute_pareto(valid)
+valid["is_pareto"] = [i in pareto_indices for i in range(len(valid))]
+
+# ---------------------------------------------------------------------------
+#  Sidebar – Plot Filters
+# ---------------------------------------------------------------------------
+st.sidebar.header("Plot Filters")
+
+loss_min, loss_max = float(valid[OBJECTIVES[1]].min()) if len(valid) else 0.0, float(valid[OBJECTIVES[1]].max()) if len(valid) else 1.0
+vpil_min, vpil_max = float(valid[OBJECTIVES[0]].min()) if len(valid) else 0.0, float(valid[OBJECTIVES[0]].max()) if len(valid) else 1.0
 
 loss_range = st.sidebar.slider(
     "Loss (dB/cm)", min_value=loss_min, max_value=loss_max,
@@ -134,7 +162,7 @@ if cost_changed:
     valid["custom_cost"] = recalculate_cost(valid, w_loss, w_vpil, t_loss, t_vpil)
 
 # ---------------------------------------------------------------------------
-#  Apply range filters
+#  Apply plot range filters
 # ---------------------------------------------------------------------------
 mask = (
     (valid[OBJECTIVES[1]] >= loss_range[0])
@@ -155,10 +183,10 @@ if cost_changed:
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Valid Sims", len(valid))
-c2.metric("Pareto-Optimal", len(filtered_pareto))
-c3.metric("Best Cost", f"{valid[COST_COL].min():.3f}")
-c4.metric("Best V_π·L", f"{valid[OBJECTIVES[0]].min():.3f} V·mm")
-c5.metric("Best Loss", f"{valid[OBJECTIVES[1]].min():.1f} dB/cm")
+c2.metric("Pareto-Optimal", int(valid["is_pareto"].sum()))
+c3.metric("Best Cost", f"{valid[COST_COL].min():.3f}" if len(valid) else "—")
+c4.metric("Best V_π·L", f"{valid[OBJECTIVES[0]].min():.3f} V·mm" if len(valid) else "—")
+c5.metric("Best Loss", f"{valid[OBJECTIVES[1]].min():.1f} dB/cm" if len(valid) else "—")
 
 
 # ---------------------------------------------------------------------------
@@ -330,11 +358,25 @@ fig_cost.update_layout(
 st.plotly_chart(fig_cost, width="stretch")
 
 # ---------------------------------------------------------------------------
-#  Pareto table
+#  Results table
 # ---------------------------------------------------------------------------
-st.subheader(f"Pareto-Optimal Designs ({len(filtered_pareto)})")
+table_view = st.radio(
+    "Table view",
+    ["Pareto-optimal only", "All valid (filtered)", "All results (raw)"],
+    horizontal=True,
+)
 
-display_df = to_display_units(filtered_pareto, cost_col=COST_COL)
+if table_view == "Pareto-optimal only":
+    table_data = filtered_pareto
+    st.subheader(f"Pareto-Optimal Designs ({len(table_data)})")
+elif table_view == "All valid (filtered)":
+    table_data = valid
+    st.subheader(f"All Valid Sims ({len(table_data)})")
+else:
+    table_data = raw_df.sort_values("sim_id")
+    st.subheader(f"All Results ({len(table_data)})")
+
+display_df = to_display_units(table_data, cost_col=COST_COL)
 st.dataframe(
     display_df,
     width="stretch",
@@ -343,4 +385,4 @@ st.dataframe(
 )
 
 csv_bytes = display_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV", csv_bytes, "pareto_front.csv", "text/csv")
+st.download_button("Download CSV", csv_bytes, "pareto_results.csv", "text/csv")
