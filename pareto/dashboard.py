@@ -111,10 +111,13 @@ max_loss = st.sidebar.slider(
 
 st.sidebar.caption(f"Total rows: {n_total} | Reached π: {n_reached_pi}")
 
-valid = raw_df.copy()
+all_with_objectives = raw_df.copy()
 if only_reached_pi:
-    valid = valid[valid["reached_pi"]].copy()
-valid = valid[valid[OBJECTIVES[1]].fillna(np.inf) <= max_loss].copy().reset_index(drop=True)
+    all_with_objectives = all_with_objectives[all_with_objectives["reached_pi"]].copy()
+else:
+    needed = list(OBJECTIVES) + ["v_pi_V"]
+    all_with_objectives = all_with_objectives[all_with_objectives[needed].notna().all(axis=1)].copy()
+valid = all_with_objectives[all_with_objectives[OBJECTIVES[1]] <= max_loss].copy().reset_index(drop=True)
 
 # Compute Pareto on the filtered valid set
 pareto_indices = compute_pareto(valid)
@@ -125,8 +128,10 @@ valid["is_pareto"] = [i in pareto_indices for i in range(len(valid))]
 # ---------------------------------------------------------------------------
 st.sidebar.header("Plot Filters")
 
-loss_min, loss_max = float(valid[OBJECTIVES[1]].min()) if len(valid) else 0.0, float(valid[OBJECTIVES[1]].max()) if len(valid) else 1.0
-vpil_min, vpil_max = float(valid[OBJECTIVES[0]].min()) if len(valid) else 0.0, float(valid[OBJECTIVES[0]].max()) if len(valid) else 1.0
+loss_min = float(valid[OBJECTIVES[1]].min()) if len(valid) else 0.0
+loss_max = float(valid[OBJECTIVES[1]].max()) if len(valid) else 1.0
+vpil_min = float(valid[OBJECTIVES[0]].min()) if len(valid) else 0.0
+vpil_max = float(valid[OBJECTIVES[0]].max()) if len(valid) else 1.0
 
 loss_range = st.sidebar.slider(
     "Loss (dB/cm)", min_value=loss_min, max_value=loss_max,
