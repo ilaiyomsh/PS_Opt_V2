@@ -8,7 +8,9 @@
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 from pareto_front import (
@@ -24,7 +26,139 @@ from pareto_front import (
 RUN_COLORS = {"Run 1": "rgb(99,110,250)", "Run 2": "rgb(239,85,59)"}
 RUN_SYMBOLS = {"Run 1": "circle", "Run 2": "diamond"}
 
+PARAM_COLS = ["w_r", "h_si", "doping", "S", "lambda", "length"]
+
+HELP_PARETO = """
+כל נקודה היא סימולציה אחת. ציר X הוא **V_π·L** (נמוך = טוב), ציר Y הוא **הפסד אופטי** (נמוך = טוב).
+
+הנקודות הצבעוניות על קו מקווקו הן **חזית פארטו** — עיצובים שאי אפשר לשפר ביעד אחד בלי לפגוע בשני.
+
+הנקודות האפורות הן עיצובים נשלטים (לא על החזית).
+
+ה**כוכב האדום** הוא **נקודת הברך (Knee)** — פשרה גיאומטרית בין שני היעדים (מרחק מקסימלי מקו שמחבר את קצוות החזית במרחב מנורמל).
+"""
+
+HELP_COST = """
+**עלות** כפונקציה של **מספר הסימולציה** (סדר הריצה).
+
+הנקודות הן עלות לכל סימולציה; **הקו** הוא **running best** — העלות הנמוכה ביותר שהושגה עד אותה נקודה בזמן. ירידה בקו משמעותה שיפור מצטבר.
+
+במצב **Both**, לכל ריצה יש צבע וסימבול נפרדים, וקו running-best לכל ריצה.
+"""
+
+HELP_LHS_BO = """
+השוואה בין שלב **LHS** (Latin Hypercube Sampling — דגימה ראשונית) לשלב **BO** (Bayesian Optimization).
+
+**Box plot**: קו באמצע = חציון, הקופסה = רבעון 25%–75%, שפם = טווח טיפוסי, נקודות = חריגים.
+
+אם **BO** משפר את **LHS**, תצפה לקופסאות נמוכות יותר (לעלות ול־V_π·L) או לפחות הפסד — בהתאם ליעד.
+
+החלוקה ל־LHS/BO מבוססת על **מספר הסימולציה** ועל סף שנקבע בסרגל הצד (ברירת מחדל: 60).
+"""
+
+HELP_PARALLEL = """
+**קואורדינטות מקבילות**: כל **קו** הוא סימולציה אחת שעוברת דרך כל הצירים (פרמטרים ויעדים).
+
+ה**צבע** נקבע לפי הבחירה (עלות / V_π·L / הפסד) ומסייע לזהות אילו שילובי פרמטרים מתאימים לערכים טובים.
+
+**Doping** מוצג כ־log₁₀(ריכוז) כדי שהטווח הרחב יהיה קריא.
+
+ניתן לגרור טווחים על כל ציר בגרף (Plotly) כדי לסנן קווים.
+
+סמן **רק פארטו** כדי להתמקד בעיצובים לא נשלטים.
+"""
+
+HELP_HEATMAP = """
+**מפת חום של קורלציה** בין **פרמטרי הקלט** לבין **היעדים** (V_π·L, הפסד, עלות).
+
+**כחול** ≈ קורלציה חיובית (כשהפרמטר עולה, היעד נוטה לעלות). **אדום** ≈ קורלציה שלילית.
+
+ערכים קרובים ל־**0** אומרים שאין קשר ליניארי חזק (ייתכנו קשרים לא ליניאריים).
+
+המספרים על התאים הם מקדמי **פירסון** על סט הנקודות המסונן (valid).
+"""
+
+HELP_DIST = """
+**היסטוגרמות** משוות את **התפלגות כל פרמטר** בין עיצובים **פארטו** (כחול) לבין **שאר העיצובים** (אפור).
+
+אם ההתפלגות הכחולה **מרוכזת** באזור מסוים, זה רמז שאזור זה במרחב הפרמטרים מועדף לעיצובים על חזית פארטו.
+
+ל־**doping** ציר X לוגריתמי (בסיס 10) לקריאות.
+"""
+
+HELP_KNEE = """
+**נקודת הברך** — פשרה בין שני היעדים: נקודה על חזית פארטו שבה **שיפור** באחד מהיעדים דורש **תשלום גבוה** בשני.
+
+החישוב: נרמול שני הצירים ל־[0,1], קו בין שני הקצוות של חזית הפארטו, ובחירת הנקודה עם **מרחק אנכי מקסימלי** מהקו.
+"""
+
+HELP_TABLE = """
+**טבלת תוצאות** עם יחידות קריאות.
+
+- **Pareto-optimal only** — רק עיצובים לא נשלטים (לפי הפילטרים והחישוב הנוכחי).
+- **All valid** — כל הסימולציות שעוברות את מסנן ההפסד ותנאי ה־π.
+- **All results (raw)** — כל השורות מהקובץ, כולל כשלונות.
+
+ניתן למיין לפי עמודה ולהוריד **CSV**.
+"""
+
 st.set_page_config(page_title="Pareto Front – PIN PS Optimizer", layout="wide")
+
+
+def section_header(title: str, help_text: str) -> None:
+    """Subheader with a ? popover for explanation."""
+    col_title, col_help = st.columns([20, 1])
+    with col_title:
+        st.subheader(title)
+    with col_help:
+        with st.popover("?"):
+            st.markdown(help_text)
+
+
+def param_axis_label(name: str) -> str:
+    return {
+        "w_r": "w_r (nm)",
+        "h_si": "h_si (nm)",
+        "doping": "Doping (cm⁻³)",
+        "S": "S (nm)",
+        "lambda": "λ (nm)",
+        "length": "Length (mm)",
+    }.get(name, name)
+
+
+def target_axis_label(col: str) -> str:
+    if col == OBJECTIVES[0]:
+        return "V_π·L (V·mm)"
+    if col == OBJECTIVES[1]:
+        return "Loss (dB/cm)"
+    if col in ("cost", "custom_cost"):
+        return "Cost"
+    return col
+
+
+def build_phase_boxplot(df: pd.DataFrame, col: str, y_title: str, lhs_count: int) -> go.Figure:
+    fig = go.Figure()
+    for phase, color in [("LHS", "rgb(99,110,250)"), ("BO", "rgb(0,186,56)")]:
+        subset = df[df["sim_id"] <= lhs_count] if phase == "LHS" else df[df["sim_id"] > lhs_count]
+        if subset.empty:
+            continue
+        fig.add_trace(
+            go.Box(
+                y=subset[col],
+                name=phase,
+                marker_color=color,
+                boxmean=True,
+            )
+        )
+    fig.update_layout(
+        yaxis_title=y_title,
+        template="plotly_white",
+        height=280,
+        margin=dict(l=50, r=20, t=30, b=40),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +215,10 @@ def find_knee(pareto_df):
 
 
 def to_display_units(df: pd.DataFrame, cost_col: str = "cost") -> pd.DataFrame:
+    df = df.reset_index(drop=True)
     d = pd.DataFrame()
     if "run" in df.columns:
-        d["Run"] = df["run"].values
+        d["Run"] = df["run"]
     d["Sim ID"] = df["sim_id"].astype(int)
     d["w_r (nm)"] = (df["w_r"] * 1e9).round(1)
     d["h_si (nm)"] = (df["h_si"] * 1e9).round(1)
@@ -151,6 +286,18 @@ valid = all_with_objectives[all_with_objectives[OBJECTIVES[1]] <= max_loss].copy
 # Compute Pareto on the filtered valid set
 pareto_indices = compute_pareto(valid)
 valid["is_pareto"] = [i in pareto_indices for i in range(len(valid))]
+
+# ---------------------------------------------------------------------------
+#  Sidebar – LHS / BO boundary
+# ---------------------------------------------------------------------------
+st.sidebar.header("LHS / BO Boundary")
+lhs_count = st.sidebar.number_input(
+    "LHS sample count (per run)",
+    min_value=1,
+    value=60,
+    step=1,
+    help="Sims with sim_id ≤ this value are tagged LHS; above = BO.",
+)
 
 # ---------------------------------------------------------------------------
 #  Sidebar – Plot Filters
@@ -247,6 +394,8 @@ def _hover_text(row):
 # ---------------------------------------------------------------------------
 #  Pareto front scatter plot
 # ---------------------------------------------------------------------------
+section_header("Pareto Front", HELP_PARETO)
+
 fig_pareto = go.Figure()
 
 if show_all and len(filtered_non_pareto) > 0:
@@ -263,7 +412,6 @@ if show_all and len(filtered_non_pareto) > 0:
 
 knee_row = None
 if len(filtered_pareto) > 0:
-    # Dotted connector line across the whole front
     fig_pareto.add_trace(go.Scatter(
         x=filtered_pareto[OBJECTIVES[0]],
         y=filtered_pareto[OBJECTIVES[1]],
@@ -273,7 +421,6 @@ if len(filtered_pareto) > 0:
         showlegend=False,
     ))
 
-    # One marker trace per run (so each run gets its own symbol in "Both" mode)
     if run_choice == "Both":
         trace_groups = [(r, filtered_pareto[filtered_pareto["run"] == r]) for r in RUN_FILES]
     else:
@@ -340,7 +487,7 @@ st.plotly_chart(fig_pareto, width="stretch")
 #  Knee point details
 # ---------------------------------------------------------------------------
 if knee_row is not None:
-    st.subheader("Knee Point — Best Trade-off")
+    section_header("Knee Point — Best Trade-off", HELP_KNEE)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Sim ID", int(knee_row["sim_id"]))
     k2.metric("V_π·L", f"{knee_row[OBJECTIVES[0]]:.4f} V·mm")
@@ -359,102 +506,290 @@ if knee_row is not None:
         st.json(kp)
 
 # ---------------------------------------------------------------------------
-#  Cost evolution chart
+#  Tabs: Progress / Parameters / Table
 # ---------------------------------------------------------------------------
-st.subheader("Cost vs. Simulation ID")
-
-sorted_valid = valid.sort_values("sim_id")
-
-sim_id_min, sim_id_max = int(sorted_valid["sim_id"].min()), int(sorted_valid["sim_id"].max())
-cost_val_min, cost_val_max = float(sorted_valid[COST_COL].min()), float(sorted_valid[COST_COL].max())
-
-cc1, cc2 = st.columns(2)
-sim_id_range = cc1.slider(
-    "Sim ID range", min_value=sim_id_min, max_value=sim_id_max,
-    value=(sim_id_min, sim_id_max), step=1,
-)
-cost_range = cc2.slider(
-    "Cost range", min_value=cost_val_min, max_value=cost_val_max,
-    value=(cost_val_min, cost_val_max), step=0.01,
+tab_progress, tab_params, tab_table = st.tabs(
+    ["Optimization Progress", "Parameter Analysis", "Results Table"]
 )
 
-cost_mask = (
-    (sorted_valid["sim_id"] >= sim_id_range[0])
-    & (sorted_valid["sim_id"] <= sim_id_range[1])
-    & (sorted_valid[COST_COL] >= cost_range[0])
-    & (sorted_valid[COST_COL] <= cost_range[1])
-)
-cost_filtered = sorted_valid[cost_mask]
+# ----- Tab 1: Optimization Progress -----
+with tab_progress:
+    section_header("Cost vs. Simulation ID", HELP_COST)
 
-fig_cost = go.Figure()
+    sorted_valid = valid.sort_values("sim_id")
+    if len(sorted_valid) == 0:
+        st.info("No valid simulations for this view.")
+    else:
+        sim_id_min = int(sorted_valid["sim_id"].min())
+        sim_id_max = int(sorted_valid["sim_id"].max())
+        cost_val_min = float(sorted_valid[COST_COL].min())
+        cost_val_max = float(sorted_valid[COST_COL].max())
 
-cost_groups = (
-    [(r, cost_filtered[cost_filtered["run"] == r]) for r in RUN_FILES]
-    if run_choice == "Both"
-    else [(run_choice, cost_filtered)]
-)
+        cc1, cc2 = st.columns(2)
+        sim_id_range = cc1.slider(
+            "Sim ID range",
+            min_value=sim_id_min,
+            max_value=sim_id_max,
+            value=(sim_id_min, sim_id_max),
+            step=1,
+            key="cost_sim_range",
+        )
+        cost_range = cc2.slider(
+            "Cost range",
+            min_value=cost_val_min,
+            max_value=cost_val_max,
+            value=(cost_val_min, cost_val_max),
+            step=0.01,
+            key="cost_val_range",
+        )
 
-for run_name, group in cost_groups:
-    if group.empty:
-        continue
-    color = RUN_COLORS.get(run_name, "rgb(99,110,250)")
-    suffix = f" – {run_name}" if run_choice == "Both" else ""
-    fig_cost.add_trace(go.Scatter(
-        x=group["sim_id"],
-        y=group[COST_COL],
-        mode="markers",
-        marker=dict(size=5, color=color, opacity=0.5,
-                    symbol=RUN_SYMBOLS.get(run_name, "circle")),
-        name=f"Cost per sim{suffix}",
-        hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Cost = %{{y:.4f}}<extra></extra>",
-    ))
-    running_best = group[COST_COL].expanding().min()
-    fig_cost.add_trace(go.Scatter(
-        x=group["sim_id"],
-        y=running_best,
-        mode="lines",
-        line=dict(width=2.5, color=color),
-        name=f"Running best{suffix}",
-        hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Best so far = %{{y:.4f}}<extra></extra>",
-    ))
-fig_cost.update_layout(
-    xaxis_title="Simulation ID",
-    yaxis_title="Cost",
-    template="plotly_white",
-    height=360,
-    margin=dict(l=60, r=30, t=20, b=50),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    hoverlabel=dict(bgcolor="rgba(30,30,30,0.95)", font_size=13, font_color="white"),
-)
+        cost_mask = (
+            (sorted_valid["sim_id"] >= sim_id_range[0])
+            & (sorted_valid["sim_id"] <= sim_id_range[1])
+            & (sorted_valid[COST_COL] >= cost_range[0])
+            & (sorted_valid[COST_COL] <= cost_range[1])
+        )
+        cost_filtered = sorted_valid[cost_mask]
 
-st.plotly_chart(fig_cost, width="stretch")
+        fig_cost = go.Figure()
+        cost_groups = (
+            [(r, cost_filtered[cost_filtered["run"] == r]) for r in RUN_FILES]
+            if run_choice == "Both"
+            else [(run_choice, cost_filtered)]
+        )
+        for run_name, group in cost_groups:
+            if group.empty:
+                continue
+            color = RUN_COLORS.get(run_name, "rgb(99,110,250)")
+            suffix = f" – {run_name}" if run_choice == "Both" else ""
+            fig_cost.add_trace(go.Scatter(
+                x=group["sim_id"],
+                y=group[COST_COL],
+                mode="markers",
+                marker=dict(size=5, color=color, opacity=0.5,
+                            symbol=RUN_SYMBOLS.get(run_name, "circle")),
+                name=f"Cost per sim{suffix}",
+                hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Cost = %{{y:.4f}}<extra></extra>",
+            ))
+            running_best = group[COST_COL].expanding().min()
+            fig_cost.add_trace(go.Scatter(
+                x=group["sim_id"],
+                y=running_best,
+                mode="lines",
+                line=dict(width=2.5, color=color),
+                name=f"Running best{suffix}",
+                hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Best so far = %{{y:.4f}}<extra></extra>",
+            ))
+        fig_cost.update_layout(
+            xaxis_title="Simulation ID",
+            yaxis_title="Cost",
+            template="plotly_white",
+            height=360,
+            margin=dict(l=60, r=30, t=20, b=50),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            hoverlabel=dict(bgcolor="rgba(30,30,30,0.95)", font_size=13, font_color="white"),
+        )
+        st.plotly_chart(fig_cost, width="stretch")
 
-# ---------------------------------------------------------------------------
-#  Results table
-# ---------------------------------------------------------------------------
-table_view = st.radio(
-    "Table view",
-    ["Pareto-optimal only", "All valid (filtered)", "All results (raw)"],
-    horizontal=True,
-)
+    section_header("LHS vs. BO", HELP_LHS_BO)
+    if len(valid) == 0:
+        st.info("No data for LHS vs BO comparison.")
+    else:
+        lhs_n = int((valid["sim_id"] <= lhs_count).sum())
+        bo_n = int((valid["sim_id"] > lhs_count).sum())
+        pareto_total = int(valid["is_pareto"].sum())
+        pareto_bo = int((valid["is_pareto"] & (valid["sim_id"] > lhs_count)).sum())
+        pct_pareto_bo = (100.0 * pareto_bo / pareto_total) if pareto_total else 0.0
+        med_lhs = valid.loc[valid["sim_id"] <= lhs_count, COST_COL].median()
+        med_bo = valid.loc[valid["sim_id"] > lhs_count, COST_COL].median()
+        if pd.notna(med_lhs) and pd.notna(med_bo) and med_lhs > 0:
+            bo_vs_lhs = med_bo / med_lhs
+        else:
+            bo_vs_lhs = float("nan")
 
-if table_view == "Pareto-optimal only":
-    table_data = filtered_pareto
-    st.subheader(f"Pareto-Optimal Designs ({len(table_data)})")
-elif table_view == "All valid (filtered)":
-    table_data = valid
-    st.subheader(f"All Valid Sims ({len(table_data)})")
-else:
-    table_data = raw_df.sort_values("sim_id")
-    st.subheader(f"All Results ({len(table_data)})")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("LHS sims (in view)", lhs_n)
+        m2.metric("BO sims (in view)", bo_n)
+        m3.metric("% Pareto from BO", f"{pct_pareto_bo:.1f}%")
+        m4.metric("Median cost BO / LHS", f"{bo_vs_lhs:.3f}" if np.isfinite(bo_vs_lhs) else "—")
 
-display_df = to_display_units(table_data, cost_col=COST_COL)
-st.dataframe(
-    display_df,
-    width="stretch",
-    hide_index=True,
-    height=min(40 * len(display_df) + 50, 600),
-)
+        r1c1, r1c2 = st.columns(2)
+        with r1c1:
+            st.plotly_chart(
+                build_phase_boxplot(valid, COST_COL, "Cost", lhs_count),
+                width="stretch",
+            )
+        with r1c2:
+            st.plotly_chart(
+                build_phase_boxplot(valid, OBJECTIVES[0], "V_π·L (V·mm)", lhs_count),
+                width="stretch",
+            )
+        st.plotly_chart(
+            build_phase_boxplot(valid, OBJECTIVES[1], "Loss (dB/cm)", lhs_count),
+            width="stretch",
+        )
 
-csv_bytes = display_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download CSV", csv_bytes, "pareto_results.csv", "text/csv")
+# ----- Tab 2: Parameter Analysis -----
+with tab_params:
+    section_header("Parallel Coordinates", HELP_PARALLEL)
+    if len(valid) == 0:
+        st.info("No valid simulations for parallel coordinates.")
+    else:
+        pc_pareto_only = st.checkbox("Show Pareto only", value=False, key="pc_pareto_only")
+        pc_df_source = valid[valid["is_pareto"]] if pc_pareto_only else valid
+        color_by = st.selectbox(
+            "Color by",
+            ["Cost", "V_π·L (V·mm)", "Loss (dB/cm)"],
+            key="pc_color",
+        )
+        color_map = {
+            "Cost": COST_COL,
+            "V_π·L (V·mm)": OBJECTIVES[0],
+            "Loss (dB/cm)": OBJECTIVES[1],
+        }
+        color_col = color_map[color_by]
+        pc_df = pd.DataFrame({
+            "w_r (nm)": pc_df_source["w_r"].to_numpy() * 1e9,
+            "h_si (nm)": pc_df_source["h_si"].to_numpy() * 1e9,
+            "log10 Doping": np.log10(pc_df_source["doping"].to_numpy()),
+            "S (nm)": pc_df_source["S"].to_numpy() * 1e9,
+            "λ (nm)": pc_df_source["lambda"].to_numpy() * 1e9,
+            "Length (mm)": pc_df_source["length"].to_numpy() * 1e3,
+            "V_π·L (V·mm)": pc_df_source[OBJECTIVES[0]].to_numpy(),
+            "Loss (dB/cm)": pc_df_source[OBJECTIVES[1]].to_numpy(),
+            color_by: pc_df_source[color_col].to_numpy(),
+        })
+        dims = [c for c in pc_df.columns if c != color_by]
+        fig_pc = px.parallel_coordinates(
+            pc_df,
+            dimensions=dims + [color_by],
+            color=color_by,
+            color_continuous_scale="Viridis",
+        )
+        fig_pc.update_layout(
+            template="plotly_white",
+            height=480,
+            margin=dict(l=40, r=40, t=40, b=40),
+        )
+        st.plotly_chart(fig_pc, width="stretch")
+
+    section_header("Parameter–Target Correlations", HELP_HEATMAP)
+    if len(valid) < 2:
+        st.info("Need at least 2 valid points for correlations.")
+    else:
+        target_cols = [OBJECTIVES[0], OBJECTIVES[1], COST_COL]
+        corr = valid[PARAM_COLS + target_cols].corr(numeric_only=True).loc[PARAM_COLS, target_cols]
+        x_labels = [target_axis_label(c) for c in target_cols]
+        y_labels = [param_axis_label(p) for p in PARAM_COLS]
+        z = corr.values.astype(float)
+        text = np.round(z, 2).astype(str)
+        fig_hm = go.Figure(
+            data=go.Heatmap(
+                z=z,
+                x=x_labels,
+                y=y_labels,
+                colorscale="RdBu_r",
+                zmid=0,
+                text=text,
+                texttemplate="%{text}",
+                hovertemplate="%{y} vs %{x}<br>r = %{z:.3f}<extra></extra>",
+            )
+        )
+        fig_hm.update_layout(
+            template="plotly_white",
+            height=340,
+            margin=dict(l=100, r=40, t=40, b=80),
+            xaxis_title="Target",
+            yaxis_title="Parameter",
+        )
+        st.plotly_chart(fig_hm, width="stretch")
+
+    section_header("Parameter Distributions: Pareto vs Other", HELP_DIST)
+    if len(valid) == 0:
+        st.info("No data for distributions.")
+    else:
+        pareto_sub = valid[valid["is_pareto"]]
+        non_sub = valid[~valid["is_pareto"]]
+        sub_titles = [param_axis_label(p) for p in PARAM_COLS]
+        fig_dist = make_subplots(rows=2, cols=3, subplot_titles=sub_titles)
+        for i, param in enumerate(PARAM_COLS):
+            row = i // 3 + 1
+            col = i % 3 + 1
+            if param == "doping":
+                x_p = pareto_sub[param].to_numpy() if len(pareto_sub) else np.array([])
+                x_n = non_sub[param].to_numpy() if len(non_sub) else np.array([])
+            else:
+                scales = {
+                    "w_r": 1e9,
+                    "h_si": 1e9,
+                    "S": 1e9,
+                    "lambda": 1e9,
+                    "length": 1e3,
+                }
+                sc = scales[param]
+                x_p = pareto_sub[param].to_numpy() * sc if len(pareto_sub) else np.array([])
+                x_n = non_sub[param].to_numpy() * sc if len(non_sub) else np.array([])
+            fig_dist.add_trace(
+                go.Histogram(
+                    x=x_n,
+                    name="Other",
+                    marker_color="rgba(150,150,150,0.55)",
+                    showlegend=(i == 0),
+                    legendgroup="other",
+                ),
+                row=row,
+                col=col,
+            )
+            fig_dist.add_trace(
+                go.Histogram(
+                    x=x_p,
+                    name="Pareto",
+                    marker_color="rgb(99,110,250)",
+                    opacity=0.75,
+                    showlegend=(i == 0),
+                    legendgroup="pareto",
+                ),
+                row=row,
+                col=col,
+            )
+            if param == "doping":
+                fig_dist.update_xaxes(type="log", row=row, col=col)
+        fig_dist.update_layout(
+            template="plotly_white",
+            height=520,
+            barmode="overlay",
+            margin=dict(l=40, r=20, t=50, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_dist, width="stretch")
+
+# ----- Tab 3: Results Table -----
+with tab_table:
+    section_header("Results", HELP_TABLE)
+    table_view = st.radio(
+        "Table view",
+        ["Pareto-optimal only", "All valid (filtered)", "All results (raw)"],
+        horizontal=True,
+        key="table_view_mode",
+    )
+
+    if table_view == "Pareto-optimal only":
+        table_data = filtered_pareto
+        st.caption(f"Pareto-Optimal Designs ({len(table_data)})")
+    elif table_view == "All valid (filtered)":
+        table_data = valid
+        st.caption(f"All Valid Sims ({len(table_data)})")
+    else:
+        table_data = raw_df.sort_values("sim_id")
+        st.caption(f"All Results ({len(table_data)})")
+
+    display_df = to_display_units(table_data, cost_col=COST_COL)
+    st.dataframe(
+        display_df,
+        width="stretch",
+        hide_index=True,
+        height=min(40 * len(display_df) + 50, 600),
+    )
+
+    csv_bytes = display_df.to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV", csv_bytes, "pareto_results.csv", "text/csv")
