@@ -34,7 +34,13 @@ SWEEP_PARAMETERS = {
 }
 FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}
 TARGETS = {'loss': 20.0, 'vpil': 1.0}
-RESULTS_CSV = os.path.join(_PARETO_DIR, "result.csv")
+
+# Multiple runs — add entries here to expose new runs in the dashboard
+RUN_FILES = {
+    "Run 1": os.path.join(_PARETO_DIR, "result_1.csv"),
+    "Run 2": os.path.join(_PARETO_DIR, "result_2.csv"),
+}
+RESULTS_CSV = RUN_FILES["Run 1"]  # CLI default
 
 OBJECTIVES = ("v_pi_l_Vmm", "loss_at_v_pi_dB_per_cm")
 TARGET_NAMES = ("V_pi*L (V*mm)", "Loss (dB/cm)")

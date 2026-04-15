@@ -16,10 +16,13 @@ from pareto_front import (
     MAX_LOSS_DB_PER_CM,
     FOM_WEIGHTS,
     TARGETS,
-    RESULTS_CSV,
+    RUN_FILES,
     build_distributions,
     build_study,
 )
+
+RUN_COLORS = {"Run 1": "rgb(99,110,250)", "Run 2": "rgb(239,85,59)"}
+RUN_SYMBOLS = {"Run 1": "circle", "Run 2": "diamond"}
 
 st.set_page_config(page_title="Pareto Front – PIN PS Optimizer", layout="wide")
 
@@ -28,8 +31,17 @@ st.set_page_config(page_title="Pareto Front – PIN PS Optimizer", layout="wide"
 #  Data loading (cached — raw, unfiltered)
 # ---------------------------------------------------------------------------
 @st.cache_data
-def load_raw():
-    df = pd.read_csv(RESULTS_CSV)
+def load_raw(run_key: str):
+    if run_key == "Both":
+        parts = []
+        for name, path in RUN_FILES.items():
+            d = pd.read_csv(path)
+            d["run"] = name
+            parts.append(d)
+        df = pd.concat(parts, ignore_index=True)
+    else:
+        df = pd.read_csv(RUN_FILES[run_key])
+        df["run"] = run_key
     needed = list(OBJECTIVES) + ["v_pi_V"]
     df["reached_pi"] = df[needed].notna().all(axis=1)
     return df
@@ -70,6 +82,8 @@ def find_knee(pareto_df):
 
 def to_display_units(df: pd.DataFrame, cost_col: str = "cost") -> pd.DataFrame:
     d = pd.DataFrame()
+    if "run" in df.columns:
+        d["Run"] = df["run"].values
     d["Sim ID"] = df["sim_id"].astype(int)
     d["w_r (nm)"] = (df["w_r"] * 1e9).round(1)
     d["h_si (nm)"] = (df["h_si"] * 1e9).round(1)
@@ -91,9 +105,19 @@ def to_display_units(df: pd.DataFrame, cost_col: str = "cost") -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+#  Sidebar – Run selection
+# ---------------------------------------------------------------------------
+st.sidebar.header("Run Selection")
+run_choice = st.sidebar.radio(
+    "Show results from",
+    list(RUN_FILES.keys()) + ["Both"],
+    index=0,
+)
+
+# ---------------------------------------------------------------------------
 #  Load raw data
 # ---------------------------------------------------------------------------
-raw_df = load_raw()
+raw_df = load_raw(run_choice)
 n_total = len(raw_df)
 n_reached_pi = int(raw_df["reached_pi"].sum())
 
@@ -108,7 +132,13 @@ max_loss = st.sidebar.number_input(
     value=float(MAX_LOSS_DB_PER_CM), step=5.0, format="%.1f",
 )
 
-st.sidebar.caption(f"Total rows: {n_total} | Reached π: {n_reached_pi}")
+run_breakdown = ""
+if run_choice == "Both":
+    counts = raw_df["run"].value_counts().to_dict()
+    run_breakdown = "  ".join(f"{k}: {counts.get(k, 0)}" for k in RUN_FILES)
+    st.sidebar.caption(f"Total rows: {n_total} | Reached π: {n_reached_pi}  ({run_breakdown})")
+else:
+    st.sidebar.caption(f"{run_choice}: {n_total} rows | Reached π: {n_reached_pi}")
 
 all_with_objectives = raw_df.copy()
 if only_reached_pi:
@@ -197,8 +227,9 @@ c5.metric("Best Loss", f"{valid[OBJECTIVES[1]].min():.1f} dB/cm" if len(valid) e
 #  Hover helper
 # ---------------------------------------------------------------------------
 def _hover_text(row):
+    run_prefix = f"[{row['run']}] " if "run" in row.index else ""
     return (
-        f"<b>Sim {int(row['sim_id'])}</b><br>"
+        f"<b>{run_prefix}Sim {int(row['sim_id'])}</b><br>"
         f"V_π·L = {row[OBJECTIVES[0]]:.4f} V·mm<br>"
         f"Loss = {row[OBJECTIVES[1]]:.2f} dB/cm<br>"
         f"Cost = {row[COST_COL]:.4f}<br>"
@@ -232,22 +263,46 @@ if show_all and len(filtered_non_pareto) > 0:
 
 knee_row = None
 if len(filtered_pareto) > 0:
+    # Dotted connector line across the whole front
     fig_pareto.add_trace(go.Scatter(
         x=filtered_pareto[OBJECTIVES[0]],
         y=filtered_pareto[OBJECTIVES[1]],
-        mode="markers+lines",
+        mode="lines",
         line=dict(width=1.5, color="rgba(99,110,250,0.3)", dash="dot"),
-        marker=dict(
-            size=10,
-            color=filtered_pareto[COST_COL],
-            colorscale="Viridis",
-            colorbar=dict(title="Cost"),
-            line=dict(width=1, color="white"),
-        ),
-        text=[_hover_text(r) for _, r in filtered_pareto.iterrows()],
-        hoverinfo="text",
-        name="Pareto Front",
+        hoverinfo="skip",
+        showlegend=False,
     ))
+
+    # One marker trace per run (so each run gets its own symbol in "Both" mode)
+    if run_choice == "Both":
+        trace_groups = [(r, filtered_pareto[filtered_pareto["run"] == r]) for r in RUN_FILES]
+    else:
+        trace_groups = [(run_choice, filtered_pareto)]
+
+    cost_min = float(filtered_pareto[COST_COL].min())
+    cost_max = float(filtered_pareto[COST_COL].max())
+    for i, (run_name, group) in enumerate(trace_groups):
+        if group.empty:
+            continue
+        fig_pareto.add_trace(go.Scatter(
+            x=group[OBJECTIVES[0]],
+            y=group[OBJECTIVES[1]],
+            mode="markers",
+            marker=dict(
+                size=11,
+                symbol=RUN_SYMBOLS.get(run_name, "circle"),
+                color=group[COST_COL],
+                colorscale="Viridis",
+                cmin=cost_min,
+                cmax=cost_max,
+                colorbar=dict(title="Cost") if i == 0 else None,
+                showscale=(i == 0),
+                line=dict(width=1, color="white"),
+            ),
+            text=[_hover_text(r) for _, r in group.iterrows()],
+            hoverinfo="text",
+            name=f"Pareto – {run_name}" if run_choice == "Both" else "Pareto Front",
+        ))
 
     knee_idx = find_knee(filtered_pareto)
     if knee_idx is not None:
@@ -330,25 +385,38 @@ cost_mask = (
     & (sorted_valid[COST_COL] <= cost_range[1])
 )
 cost_filtered = sorted_valid[cost_mask]
-cost_running_best = cost_filtered[COST_COL].expanding().min()
 
 fig_cost = go.Figure()
-fig_cost.add_trace(go.Scatter(
-    x=cost_filtered["sim_id"],
-    y=cost_filtered[COST_COL],
-    mode="markers",
-    marker=dict(size=5, color="rgba(99,110,250,0.5)"),
-    name="Cost per sim",
-    hovertemplate="Sim %{x:.0f}<br>Cost = %{y:.4f}<extra></extra>",
-))
-fig_cost.add_trace(go.Scatter(
-    x=cost_filtered["sim_id"],
-    y=cost_running_best,
-    mode="lines",
-    line=dict(width=2.5, color="rgb(239,85,59)"),
-    name="Running best",
-    hovertemplate="Sim %{x:.0f}<br>Best so far = %{y:.4f}<extra></extra>",
-))
+
+cost_groups = (
+    [(r, cost_filtered[cost_filtered["run"] == r]) for r in RUN_FILES]
+    if run_choice == "Both"
+    else [(run_choice, cost_filtered)]
+)
+
+for run_name, group in cost_groups:
+    if group.empty:
+        continue
+    color = RUN_COLORS.get(run_name, "rgb(99,110,250)")
+    suffix = f" – {run_name}" if run_choice == "Both" else ""
+    fig_cost.add_trace(go.Scatter(
+        x=group["sim_id"],
+        y=group[COST_COL],
+        mode="markers",
+        marker=dict(size=5, color=color, opacity=0.5,
+                    symbol=RUN_SYMBOLS.get(run_name, "circle")),
+        name=f"Cost per sim{suffix}",
+        hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Cost = %{{y:.4f}}<extra></extra>",
+    ))
+    running_best = group[COST_COL].expanding().min()
+    fig_cost.add_trace(go.Scatter(
+        x=group["sim_id"],
+        y=running_best,
+        mode="lines",
+        line=dict(width=2.5, color=color),
+        name=f"Running best{suffix}",
+        hovertemplate=f"[{run_name}] Sim %{{x:.0f}}<br>Best so far = %{{y:.4f}}<extra></extra>",
+    ))
 fig_cost.update_layout(
     xaxis_title="Simulation ID",
     yaxis_title="Cost",

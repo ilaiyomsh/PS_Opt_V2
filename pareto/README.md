@@ -14,9 +14,10 @@ Deployed on **Streamlit Community Cloud** — no local installation required for
 |------|-------------|
 | `dashboard.py` | Streamlit interactive dashboard |
 | `pareto_front.py` | CLI tool — Pareto identification & CSV/HTML export |
-| `result.csv` | Simulation results snapshot (copied from `simulation csv/result.csv`) |
-| `pareto_front.csv` | Exported Pareto-optimal subset |
-| `pareto_front.html` | Static Plotly HTML plot (legacy) |
+| `result_1.csv` | Run 1 results snapshot (60 LHS + 144 BO, with kappa decay) |
+| `result_2.csv` | Run 2 results snapshot (second optimization run) |
+| `pareto_front.csv` | Exported Pareto-optimal subset (CLI output, Run 1) |
+| `pareto_front.html` | Static Plotly HTML plot (CLI output, Run 1) |
 | `requirements.txt` | Python dependencies for Streamlit Cloud |
 
 ## Running Locally
@@ -46,6 +47,12 @@ Outputs `pareto_front.csv` and `pareto_front.html`.
 - Non-Pareto points shown in gray (toggleable)
 - **Knee point** (best trade-off) detected automatically and marked with a red star
 - Hover tooltip shows all design parameters in human-readable units (nm, mm, V)
+
+### Run Selection (sidebar)
+- Choose **Run 1**, **Run 2**, or **Both** to compare optimization campaigns
+- In "Both" mode, each run is tagged on the plot with a distinct marker symbol (circle / diamond) while sharing a single cost color scale — Pareto front is computed across the combined dataset
+- Cost-evolution chart splits into per-run traces (each with its own running-best line)
+- Tables show a **Run** column for origin tracking
 
 ### Data Filters (sidebar)
 - **Only sims that reached π** — exclude simulations that didn't achieve π phase shift
@@ -78,12 +85,25 @@ All views support sorting by any column and CSV download.
 
 ## Updating Results
 
-When new simulation results are available:
+When new simulation results are available, copy them into `pareto/` with a numbered name and register the file in `pareto_front.py`:
 
 ```bash
-cp "simulation csv/result.csv" pareto/result.csv
-git add pareto/result.csv
-git commit -m "Update results data"
+# 1. Copy the new run's CSV
+cp "simulation csv/result.csv" pareto/result_3.csv
+
+# 2. Add an entry to RUN_FILES in pareto/pareto_front.py:
+#    RUN_FILES = {
+#        "Run 1": os.path.join(_PARETO_DIR, "result_1.csv"),
+#        "Run 2": os.path.join(_PARETO_DIR, "result_2.csv"),
+#        "Run 3": os.path.join(_PARETO_DIR, "result_3.csv"),  # <- new
+#    }
+
+# 3. (Optional) Add a color/symbol for the new run in dashboard.py
+#    RUN_COLORS / RUN_SYMBOLS
+
+# 4. Commit and push
+git add pareto/
+git commit -m "Add Run 3 results"
 git push
 ```
 
