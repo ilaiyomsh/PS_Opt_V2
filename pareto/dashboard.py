@@ -103,10 +103,9 @@ n_reached_pi = int(raw_df["reached_pi"].sum())
 st.sidebar.header("Data Filters")
 
 only_reached_pi = st.sidebar.checkbox("Only sims that reached π", value=True)
-max_loss = st.sidebar.slider(
+max_loss = st.sidebar.number_input(
     "Max Loss cutoff (dB/cm)", min_value=0.0,
-    max_value=float(raw_df[OBJECTIVES[1]].max()) if raw_df[OBJECTIVES[1]].notna().any() else 200.0,
-    value=float(MAX_LOSS_DB_PER_CM), step=5.0,
+    value=float(MAX_LOSS_DB_PER_CM), step=5.0, format="%.1f",
 )
 
 st.sidebar.caption(f"Total rows: {n_total} | Reached π: {n_reached_pi}")
