@@ -12,6 +12,9 @@ bayesian-optimization>=1.4.0
 # Data Processing and Analysis
 scikit-learn>=1.3.0
 
+# Interactive Dashboard
+streamlit>=1.30.0
+
 # Optional: Plotting (uncomment if needed for visualization)
 # matplotlib>=3.7.0
 

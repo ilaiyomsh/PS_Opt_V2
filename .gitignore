@@ -15,6 +15,10 @@
 !/test/
 !/test/**
 
+# Include pareto dashboard (self-contained, deployed to Streamlit Cloud)
+!/pareto/
+!/pareto/**
+
 # Python cache and compiled files
 __pycache__/
 *.py[cod]
