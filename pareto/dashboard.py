@@ -29,77 +29,67 @@ RUN_SYMBOLS = {"Run 1": "circle", "Run 2": "diamond"}
 PARAM_COLS = ["w_r", "h_si", "doping", "S", "lambda", "length"]
 
 HELP_PARETO = """
-כל נקודה היא סימולציה אחת. ציר X הוא **V_π·L** (נמוך = טוב), ציר Y הוא **הפסד אופטי** (נמוך = טוב).
+Each point is one simulation. X axis is **V_π·L** (lower = better); Y axis is **optical loss** (lower = better).
 
-הנקודות הצבעוניות על קו מקווקו הן **חזית פארטו** — עיצובים שאי אפשר לשפר ביעד אחד בלי לפגוע בשני.
+Colored points connected by a dotted line form the **Pareto front** — designs where no other design improves one objective without sacrificing the other.
 
-הנקודות האפורות הן עיצובים נשלטים (לא על החזית).
+Gray points are dominated designs (not on the front).
 
-ה**כוכב האדום** הוא **נקודת הברך (Knee)** — פשרה גיאומטרית בין שני היעדים (מרחק מקסימלי מקו שמחבר את קצוות החזית במרחב מנורמל).
+The **red star** marks the **knee point** — a geometric compromise between the two objectives (the point with maximum perpendicular distance from the line connecting the front's endpoints in the normalized space).
 """
 
 HELP_COST = """
-**עלות** כפונקציה של **מספר הסימולציה** (סדר הריצה).
+**Cost** as a function of **simulation ID** (run order).
 
-הנקודות הן עלות לכל סימולציה; **הקו** הוא **running best** — העלות הנמוכה ביותר שהושגה עד אותה נקודה בזמן. ירידה בקו משמעותה שיפור מצטבר.
+Markers show the cost of each simulation; the **line** is the **running best** — the lowest cost achieved up to that point. A decreasing line means cumulative improvement.
 
-במצב **Both**, לכל ריצה יש צבע וסימבול נפרדים, וקו running-best לכל ריצה.
-"""
-
-HELP_LHS_BO = """
-השוואה בין שלב **LHS** (Latin Hypercube Sampling — דגימה ראשונית) לשלב **BO** (Bayesian Optimization).
-
-**Box plot**: קו באמצע = חציון, הקופסה = רבעון 25%–75%, שפם = טווח טיפוסי, נקודות = חריגים.
-
-אם **BO** משפר את **LHS**, תצפה לקופסאות נמוכות יותר (לעלות ול־V_π·L) או לפחות הפסד — בהתאם ליעד.
-
-החלוקה ל־LHS/BO מבוססת על **מספר הסימולציה** ועל סף שנקבע בסרגל הצד (ברירת מחדל: 60).
+In **Both** mode each run has its own color and marker symbol, and a separate running-best line.
 """
 
 HELP_PARALLEL = """
-**קואורדינטות מקבילות**: כל **קו** הוא סימולציה אחת שעוברת דרך כל הצירים (פרמטרים ויעדים).
+**Parallel coordinates**: each **line** is one simulation that passes through every axis (parameters and objectives).
 
-ה**צבע** נקבע לפי הבחירה (עלות / V_π·L / הפסד) ומסייע לזהות אילו שילובי פרמטרים מתאימים לערכים טובים.
+The **color** is set by your selection (Cost / V_π·L / Loss) and helps identify which combinations of parameters yield good values.
 
-**Doping** מוצג כ־log₁₀(ריכוז) כדי שהטווח הרחב יהיה קריא.
+**Doping** is shown as log₁₀(concentration) so the wide range stays readable.
 
-ניתן לגרור טווחים על כל ציר בגרף (Plotly) כדי לסנן קווים.
+Drag a range on any axis (Plotly built-in) to filter lines.
 
-סמן **רק פארטו** כדי להתמקד בעיצובים לא נשלטים.
+Toggle **Pareto only** to focus on non-dominated designs.
 """
 
 HELP_HEATMAP = """
-**מפת חום של קורלציה** בין **פרמטרי הקלט** לבין **היעדים** (V_π·L, הפסד, עלות).
+**Correlation heatmap** between **input parameters** and the **targets** (V_π·L, Loss, Cost).
 
-**כחול** ≈ קורלציה חיובית (כשהפרמטר עולה, היעד נוטה לעלות). **אדום** ≈ קורלציה שלילית.
+**Blue** ≈ positive correlation (as the parameter increases, the target tends to increase). **Red** ≈ negative correlation.
 
-ערכים קרובים ל־**0** אומרים שאין קשר ליניארי חזק (ייתכנו קשרים לא ליניאריים).
+Values near **0** mean no strong linear relationship (non-linear relationships may still exist).
 
-המספרים על התאים הם מקדמי **פירסון** על סט הנקודות המסונן (valid).
+Cell numbers are **Pearson** coefficients computed on the filtered (valid) set.
 """
 
 HELP_DIST = """
-**היסטוגרמות** משוות את **התפלגות כל פרמטר** בין עיצובים **פארטו** (כחול) לבין **שאר העיצובים** (אפור).
+**Histograms** compare the **distribution of each parameter** between **Pareto** designs (blue) and the **other** designs (gray).
 
-אם ההתפלגות הכחולה **מרוכזת** באזור מסוים, זה רמז שאזור זה במרחב הפרמטרים מועדף לעיצובים על חזית פארטו.
+If the blue distribution is **concentrated** in a particular region, that region of the parameter space tends to favor Pareto-optimal designs.
 
-ל־**doping** ציר X לוגריתמי (בסיס 10) לקריאות.
+For **doping** the X axis is logarithmic (base 10) for readability.
 """
 
 HELP_KNEE = """
-**נקודת הברך** — פשרה בין שני היעדים: נקודה על חזית פארטו שבה **שיפור** באחד מהיעדים דורש **תשלום גבוה** בשני.
+**Knee point** — a compromise between the two objectives: a point on the Pareto front where **improving** one objective demands a **steep cost** in the other.
 
-החישוב: נרמול שני הצירים ל־[0,1], קו בין שני הקצוות של חזית הפארטו, ובחירת הנקודה עם **מרחק אנכי מקסימלי** מהקו.
+Computation: normalize both axes to [0, 1], draw a line between the two endpoints of the Pareto front, and pick the point with **maximum perpendicular distance** from that line.
 """
 
 HELP_TABLE = """
-**טבלת תוצאות** עם יחידות קריאות.
+**Results table** with human-readable units.
 
-- **Pareto-optimal only** — רק עיצובים לא נשלטים (לפי הפילטרים והחישוב הנוכחי).
-- **All valid** — כל הסימולציות שעוברות את מסנן ההפסד ותנאי ה־π.
-- **All results (raw)** — כל השורות מהקובץ, כולל כשלונות.
+- **Pareto-optimal only** — only non-dominated designs (under the current filters and cost computation).
+- **All valid** — every simulation passing the loss cutoff and the π condition.
+- **All results (raw)** — every row from the file, including failed simulations.
 
-ניתן למיין לפי עמודה ולהוריד **CSV**.
+Sort by any column and download the table as **CSV**.
 """
 
 st.set_page_config(page_title="Pareto Front – PIN PS Optimizer", layout="wide")
@@ -134,31 +124,6 @@ def target_axis_label(col: str) -> str:
     if col in ("cost", "custom_cost"):
         return "Cost"
     return col
-
-
-def build_phase_boxplot(df: pd.DataFrame, col: str, y_title: str, lhs_count: int) -> go.Figure:
-    fig = go.Figure()
-    for phase, color in [("LHS", "rgb(99,110,250)"), ("BO", "rgb(0,186,56)")]:
-        subset = df[df["sim_id"] <= lhs_count] if phase == "LHS" else df[df["sim_id"] > lhs_count]
-        if subset.empty:
-            continue
-        fig.add_trace(
-            go.Box(
-                y=subset[col],
-                name=phase,
-                marker_color=color,
-                boxmean=True,
-            )
-        )
-    fig.update_layout(
-        yaxis_title=y_title,
-        template="plotly_white",
-        height=280,
-        margin=dict(l=50, r=20, t=30, b=40),
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -286,18 +251,6 @@ valid = all_with_objectives[all_with_objectives[OBJECTIVES[1]] <= max_loss].copy
 # Compute Pareto on the filtered valid set
 pareto_indices = compute_pareto(valid)
 valid["is_pareto"] = [i in pareto_indices for i in range(len(valid))]
-
-# ---------------------------------------------------------------------------
-#  Sidebar – LHS / BO boundary
-# ---------------------------------------------------------------------------
-st.sidebar.header("LHS / BO Boundary")
-lhs_count = st.sidebar.number_input(
-    "LHS sample count (per run)",
-    min_value=1,
-    value=60,
-    step=1,
-    help="Sims with sim_id ≤ this value are tagged LHS; above = BO.",
-)
 
 # ---------------------------------------------------------------------------
 #  Sidebar – Plot Filters
@@ -590,44 +543,6 @@ with tab_progress:
             hoverlabel=dict(bgcolor="rgba(30,30,30,0.95)", font_size=13, font_color="white"),
         )
         st.plotly_chart(fig_cost, width="stretch")
-
-    section_header("LHS vs. BO", HELP_LHS_BO)
-    if len(valid) == 0:
-        st.info("No data for LHS vs BO comparison.")
-    else:
-        lhs_n = int((valid["sim_id"] <= lhs_count).sum())
-        bo_n = int((valid["sim_id"] > lhs_count).sum())
-        pareto_total = int(valid["is_pareto"].sum())
-        pareto_bo = int((valid["is_pareto"] & (valid["sim_id"] > lhs_count)).sum())
-        pct_pareto_bo = (100.0 * pareto_bo / pareto_total) if pareto_total else 0.0
-        med_lhs = valid.loc[valid["sim_id"] <= lhs_count, COST_COL].median()
-        med_bo = valid.loc[valid["sim_id"] > lhs_count, COST_COL].median()
-        if pd.notna(med_lhs) and pd.notna(med_bo) and med_lhs > 0:
-            bo_vs_lhs = med_bo / med_lhs
-        else:
-            bo_vs_lhs = float("nan")
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("LHS sims (in view)", lhs_n)
-        m2.metric("BO sims (in view)", bo_n)
-        m3.metric("% Pareto from BO", f"{pct_pareto_bo:.1f}%")
-        m4.metric("Median cost BO / LHS", f"{bo_vs_lhs:.3f}" if np.isfinite(bo_vs_lhs) else "—")
-
-        r1c1, r1c2 = st.columns(2)
-        with r1c1:
-            st.plotly_chart(
-                build_phase_boxplot(valid, COST_COL, "Cost", lhs_count),
-                width="stretch",
-            )
-        with r1c2:
-            st.plotly_chart(
-                build_phase_boxplot(valid, OBJECTIVES[0], "V_π·L (V·mm)", lhs_count),
-                width="stretch",
-            )
-        st.plotly_chart(
-            build_phase_boxplot(valid, OBJECTIVES[1], "Loss (dB/cm)", lhs_count),
-            width="stretch",
-        )
 
 # ----- Tab 2: Parameter Analysis -----
 with tab_params:

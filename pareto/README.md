@@ -42,7 +42,7 @@ Outputs `pareto_front.csv` and `pareto_front.html`.
 ## Dashboard Features
 
 ### Chart help ("?")
-Each major chart has a **?** button next to its title that opens a short **Hebrew** explanation of how to read the plot.
+Each major chart has a **?** button next to its title that opens a short explanation of how to read the plot.
 
 ### Pareto Front Plot
 - Scatter plot of V_π·L vs. optical loss for all valid simulations
@@ -62,10 +62,6 @@ Each major chart has a **?** button next to its title that opens a short **Hebre
 - **Max Loss cutoff** — numeric input to set the maximum loss threshold (default: 50 dB/cm)
 - **Loss / V_π·L range sliders** — zoom into a region of the Pareto front
 
-### LHS / BO boundary (sidebar)
-- **LHS sample count (per run)** — simulations with `sim_id` ≤ this value are tagged **LHS**; above = **BO** (default: 60)
-- Used by the **LHS vs BO** box plots and summary metrics in **Optimization Progress**
-
 ### Dynamic Cost Function (sidebar)
 The cost function can be tuned in real-time:
 
@@ -81,7 +77,6 @@ Changing these recalculates cost for all simulations instantly, updating the plo
 
 **Optimization Progress**
 - **Cost vs. Simulation ID** — per-sim cost and running-best line (filterable)
-- **LHS vs. BO** — box plots for Cost, V_π·L, and Loss by phase; metrics: LHS/BO counts, % Pareto from BO, median cost ratio BO/LHS
 
 **Parameter Analysis**
 - **Parallel coordinates** — all six parameters plus objectives; optional **Pareto only**; color by Cost / V_π·L / Loss; doping as log₁₀
