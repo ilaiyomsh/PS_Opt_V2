@@ -9,7 +9,7 @@ from datetime import datetime
 import config
 import LHS
 import run_simulation
-import BO
+import bo_dispatch as BO
 import pandas as pd
 import numpy as np
 
@@ -259,7 +259,7 @@ def _run_bo_loop(results_path):
             _log_bo_result(result)
             bo_sim_id += 1
 
-            # Show best so far
+            # Show best so far (None under MOBO — Pareto front has no single "best")
             best = BO.get_best_result(results_path)
             if best:
                 log_raw(f"      Best so far: sim_id={int(best['sim_id'])}, "
@@ -315,7 +315,10 @@ def _print_final_results(results_path):
 
     best = BO.get_best_result(results_path)
     if not best:
-        log_raw("  [WARNING] Could not determine best result")
+        if getattr(config, 'BO_METHOD', 'bayes_opt') == 'botorch':
+            log_raw("  MOBO run — skipping single-best summary. Open the pareto/ dashboard for the Pareto front.")
+        else:
+            log_raw("  [WARNING] Could not determine best result")
         return
 
     # Table

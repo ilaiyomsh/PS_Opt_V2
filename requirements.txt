@@ -24,6 +24,13 @@ smt>=2.0.0
 # Testing
 pytest>=7.0.0
 
+# Optional: multi-objective BO backend (only needed when config.BO_METHOD='botorch')
+# Requires Python >= 3.11
+# Install with: pip install torch gpytorch botorch
+# torch>=2.2
+# gpytorch>=1.15.2
+# botorch>=0.12
+
 # Note: Lumerical lumapi module
 # lumapi is provided by Lumerical installation
 # Ensure Lumerical DEVICE and MODE are installed

@@ -8,7 +8,7 @@ from datetime import datetime
 import config
 import LHS
 import run_simulation
-import BO
+import bo_dispatch as BO
 import pandas as pd
 import numpy as np
 
@@ -188,7 +188,10 @@ def _print_final_results(results_path):
 
     best = BO.get_best_result(results_path)
     if not best:
-        print("No valid results found.")
+        if getattr(config, 'BO_METHOD', 'bayes_opt') == 'botorch':
+            print("MOBO run — see pareto/ dashboard for the Pareto front.")
+        else:
+            print("No valid results found.")
         return
 
     print(f"\nBest (sim_id={int(best['sim_id'])}):")
