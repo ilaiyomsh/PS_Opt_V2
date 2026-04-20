@@ -23,8 +23,12 @@ from pareto_front import (
     build_study,
 )
 
-RUN_COLORS = {"Run 1": "rgb(99,110,250)", "Run 2": "rgb(239,85,59)"}
-RUN_SYMBOLS = {"Run 1": "circle", "Run 2": "diamond"}
+RUN_COLORS = {
+    "Run 1": "rgb(99,110,250)",
+    "Run 2": "rgb(239,85,59)",
+    "Run 3": "rgb(0,204,150)",
+}
+RUN_SYMBOLS = {"Run 1": "circle", "Run 2": "diamond", "Run 3": "square"}
 
 PARAM_COLS = ["w_r", "h_si", "doping", "S", "lambda", "length"]
 
@@ -155,6 +159,28 @@ def compute_pareto(valid_df):
     return {t.number for t in study.best_trials}
 
 
+def compute_pareto_mask(valid_df, per_run=False):
+    """Boolean mask over valid_df. If per_run, compute Pareto front per run
+    independently so each run contributes its own non-dominated set."""
+    mask = np.zeros(len(valid_df), dtype=bool)
+    if valid_df.empty:
+        return mask
+    if per_run and "run" in valid_df.columns:
+        for run_name in valid_df["run"].unique():
+            sub = valid_df[valid_df["run"] == run_name]
+            if sub.empty:
+                continue
+            sub_reset = sub.reset_index(drop=True)
+            local_pareto = compute_pareto(sub_reset)
+            orig_indices = sub.index.to_numpy()
+            for pos in local_pareto:
+                mask[orig_indices[pos]] = True
+    else:
+        for pos in compute_pareto(valid_df):
+            mask[pos] = True
+    return mask
+
+
 def recalculate_cost(df, w_loss, w_vpil, t_loss, t_vpil):
     norm_loss = df[OBJECTIVES[1]] / t_loss
     norm_vpil = df[OBJECTIVES[0]] / t_vpil
@@ -248,9 +274,10 @@ else:
     all_with_objectives = all_with_objectives[all_with_objectives[needed].notna().all(axis=1)].copy()
 valid = all_with_objectives[all_with_objectives[OBJECTIVES[1]] <= max_loss].copy().reset_index(drop=True)
 
-# Compute Pareto on the filtered valid set
-pareto_indices = compute_pareto(valid)
-valid["is_pareto"] = [i in pareto_indices for i in range(len(valid))]
+# Compute Pareto on the filtered valid set.
+# In "Both" mode compute one Pareto front per run (so each run gets its own line).
+per_run_pareto = run_choice == "Both"
+valid["is_pareto"] = compute_pareto_mask(valid, per_run=per_run_pareto)
 
 # ---------------------------------------------------------------------------
 #  Sidebar – Plot Filters
@@ -291,9 +318,10 @@ cost_changed = (
     or t_vpil != TARGETS["vpil"]
 )
 
-COST_COL = "custom_cost" if cost_changed else "cost"
-if cost_changed:
-    valid["custom_cost"] = recalculate_cost(valid, w_loss, w_vpil, t_loss, t_vpil)
+# Always use dashboard-recalculated cost so weights/targets are consistent,
+# even when historical CSVs were generated with older defaults.
+valid["custom_cost"] = recalculate_cost(valid, w_loss, w_vpil, t_loss, t_vpil)
+COST_COL = "custom_cost"
 
 # ---------------------------------------------------------------------------
 #  Apply plot range filters
@@ -365,25 +393,25 @@ if show_all and len(filtered_non_pareto) > 0:
 
 knee_row = None
 if len(filtered_pareto) > 0:
-    fig_pareto.add_trace(go.Scatter(
-        x=filtered_pareto[OBJECTIVES[0]],
-        y=filtered_pareto[OBJECTIVES[1]],
-        mode="lines",
-        line=dict(width=1.5, color="rgba(99,110,250,0.3)", dash="dot"),
-        hoverinfo="skip",
-        showlegend=False,
-    ))
-
     if run_choice == "Both":
         trace_groups = [(r, filtered_pareto[filtered_pareto["run"] == r]) for r in RUN_FILES]
     else:
         trace_groups = [(run_choice, filtered_pareto)]
 
-    cost_min = float(filtered_pareto[COST_COL].min())
-    cost_max = float(filtered_pareto[COST_COL].max())
-    for i, (run_name, group) in enumerate(trace_groups):
+    for run_name, group in trace_groups:
         if group.empty:
             continue
+        color = RUN_COLORS.get(run_name, "rgb(99,110,250)")
+        # Dotted line connecting the run's own Pareto front (sorted by V_pi*L).
+        group_sorted = group.sort_values(OBJECTIVES[0])
+        fig_pareto.add_trace(go.Scatter(
+            x=group_sorted[OBJECTIVES[0]],
+            y=group_sorted[OBJECTIVES[1]],
+            mode="lines",
+            line=dict(width=1.5, color=color, dash="dot"),
+            hoverinfo="skip",
+            showlegend=False,
+        ))
         fig_pareto.add_trace(go.Scatter(
             x=group[OBJECTIVES[0]],
             y=group[OBJECTIVES[1]],
@@ -391,12 +419,7 @@ if len(filtered_pareto) > 0:
             marker=dict(
                 size=11,
                 symbol=RUN_SYMBOLS.get(run_name, "circle"),
-                color=group[COST_COL],
-                colorscale="Viridis",
-                cmin=cost_min,
-                cmax=cost_max,
-                colorbar=dict(title="Cost") if i == 0 else None,
-                showscale=(i == 0),
+                color=color,
                 line=dict(width=1, color="white"),
             ),
             text=[_hover_text(r) for _, r in group.iterrows()],
@@ -404,23 +427,25 @@ if len(filtered_pareto) > 0:
             name=f"Pareto – {run_name}" if run_choice == "Both" else "Pareto Front",
         ))
 
-    knee_idx = find_knee(filtered_pareto)
-    if knee_idx is not None:
-        knee_row = filtered_pareto.iloc[knee_idx]
-        fig_pareto.add_trace(go.Scatter(
-            x=[knee_row[OBJECTIVES[0]]],
-            y=[knee_row[OBJECTIVES[1]]],
-            mode="markers+text",
-            marker=dict(size=18, color="red", symbol="star",
-                        line=dict(width=1.5, color="white")),
-            text=[f"Knee (Sim {int(knee_row['sim_id'])})"],
-            textposition="top center",
-            textfont=dict(size=13, color="red"),
-            hoverinfo="text",
-            hovertext=_hover_text(knee_row),
-            name="Knee Point",
-            showlegend=True,
-        ))
+    # Knee only for single-run view (ambiguous when comparing multiple fronts).
+    if run_choice != "Both":
+        knee_idx = find_knee(filtered_pareto.sort_values(OBJECTIVES[0]).reset_index(drop=True))
+        if knee_idx is not None:
+            knee_row = filtered_pareto.sort_values(OBJECTIVES[0]).reset_index(drop=True).iloc[knee_idx]
+            fig_pareto.add_trace(go.Scatter(
+                x=[knee_row[OBJECTIVES[0]]],
+                y=[knee_row[OBJECTIVES[1]]],
+                mode="markers+text",
+                marker=dict(size=18, color="red", symbol="star",
+                            line=dict(width=1.5, color="white")),
+                text=[f"Knee (Sim {int(knee_row['sim_id'])})"],
+                textposition="top center",
+                textfont=dict(size=13, color="red"),
+                hoverinfo="text",
+                hovertext=_hover_text(knee_row),
+                name="Knee Point",
+                showlegend=True,
+            ))
 
 fig_pareto.update_layout(
     xaxis_title="V_π·L  (V·mm)",

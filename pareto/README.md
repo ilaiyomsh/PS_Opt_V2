@@ -16,6 +16,7 @@ Deployed on **Streamlit Community Cloud** — no local installation required for
 | `pareto_front.py` | CLI tool — Pareto identification & CSV/HTML export |
 | `result_1.csv` | Run 1 results snapshot (60 LHS + 144 BO, with kappa decay) |
 | `result_2.csv` | Run 2 results snapshot (second optimization run) |
+| `result_3.csv` | Run 3 — only the 50 new BoTorch (qNEHVI) iterations on top of the seeded GP |
 | `pareto_front.csv` | Exported Pareto-optimal subset (CLI output, Run 1) |
 | `pareto_front.html` | Static Plotly HTML plot (CLI output, Run 1) |
 | `requirements.txt` | Python dependencies for Streamlit Cloud |
@@ -52,8 +53,9 @@ Each major chart has a **?** button next to its title that opens a short explana
 - Hover tooltip shows all design parameters in human-readable units (nm, mm, V)
 
 ### Run Selection (sidebar)
-- Choose **Run 1**, **Run 2**, or **Both** to compare optimization campaigns
-- In "Both" mode, each run is tagged on the plot with a distinct marker symbol (circle / diamond) while sharing a single cost color scale — Pareto front is computed across the combined dataset
+- Choose **Run 1**, **Run 2**, **Run 3**, or **Both** to compare optimization campaigns
+- In "Both" mode a **separate Pareto front is computed for each run** and drawn as its own dotted line + markers (blue circles = Run 1, orange diamonds = Run 2, green squares = Run 3) — this makes it easy to see whether a newer run actually pushes the front forward
+- Knee point is shown only for single-run views (ambiguous across multiple fronts)
 - Cost-evolution chart splits into per-run traces (each with its own running-best line)
 - Tables show a **Run** column for origin tracking
 
@@ -68,7 +70,7 @@ The cost function can be tuned in real-time:
 $$C = w_\alpha \left(\frac{\alpha}{T_\alpha}\right)^2 + w_{V_\pi L}\left(\frac{V_\pi L}{T_{V_\pi L}}\right)^2$$
 
 Adjustable parameters:
-- `w_loss` / `w_vpil` — relative weights (default: 0.3 / 0.7)
+- `w_loss` / `w_vpil` — relative weights (default: 0.5 / 0.5)
 - `T_loss` / `T_vpil` — normalization targets (default: 20 dB/cm / 1.0 V·mm)
 
 Changing these recalculates cost for all simulations instantly, updating the plot colors and table.

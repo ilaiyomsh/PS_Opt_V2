@@ -32,13 +32,14 @@ SWEEP_PARAMETERS = {
     'lambda': {'min': 1260e-9, 'max': 1360e-9},
     'length': {'min': 0.1e-3,  'max': 1.0e-3},
 }
-FOM_WEIGHTS = {'loss': 0.3, 'vpil': 0.7}
+FOM_WEIGHTS = {'loss': 0.5, 'vpil': 0.5}
 TARGETS = {'loss': 20.0, 'vpil': 1.0}
 
 # Multiple runs — add entries here to expose new runs in the dashboard
 RUN_FILES = {
     "Run 1": os.path.join(_PARETO_DIR, "result_1.csv"),
     "Run 2": os.path.join(_PARETO_DIR, "result_2.csv"),
+    "Run 3": os.path.join(_PARETO_DIR, "result_3.csv"),
 }
 RESULTS_CSV = RUN_FILES["Run 1"]  # CLI default
 
