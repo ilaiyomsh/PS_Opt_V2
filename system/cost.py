@@ -52,6 +52,10 @@ def calculate_cost(alpha, v_pi_l, max_dphi, weights=None, targets=None):
 
     # Branch 1: Valid Simulation (Reached Pi)
     if max_dphi >= np.pi:
+        # Failsafe: Destroy the cost score if Lumerical returns optical gain
+        if alpha < 0:
+             return config.C_BASE + 50.0  # Massive penalty for unphysical gain results
+        # Normalize by targets and apply weights
         norm_loss = alpha / targets['loss']
         norm_vpil = v_pi_l / targets['vpil']
         # Quadratic (squared) terms per Equation 27
