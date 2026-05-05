@@ -1,10 +1,10 @@
 """
-Recalculate cost function for Legacy_LHS_Results.csv
+Recalculate cost function for existing simulation CSV results.
 
 This script:
-1. Reads the Legacy_LHS_Results.csv file
-2. Recalculates the cost using the corrected cost function
-3. Saves the results to simulation csv/ directory for BO usage
+1. Reads result_full.csv from the simulation csv/ directory
+2. Recalculates cost, norm_loss, and norm_vpil using the current cost.py / config.py
+3. Overwrites result_full.csv and result.csv in-place
 """
 
 import sys
@@ -12,126 +12,105 @@ import os
 import pandas as pd
 import numpy as np
 
-# Add system directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'system'))
+# Ensure the system package is importable whether run from repo root or system/
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
 import config
 import cost as cost_module
 
 
-def recalculate_legacy_costs(legacy_csv_path, output_dir=None):
+def recalculate_costs():
     """
-    Recalculate costs for legacy LHS results using the corrected cost function.
-    
-    Parameters:
-    -----------
-    legacy_csv_path : str
-        Path to Legacy_LHS_Results.csv
-    output_dir : str, optional
-        Output directory. If None, uses config.SIMULATION_CSV_DIR
+    Recalculate cost, norm_loss, and norm_vpil for all rows in result_full.csv
+    using the current cost function parameters from config.py and cost.py.
+    Saves updated result_full.csv and result.csv in-place.
     """
-    
-    print(f"Loading legacy results: {legacy_csv_path}")
-    df = pd.read_csv(legacy_csv_path)
-    
-    # Remove empty rows (all NaN)
+
+    full_path = config.RESULTS_FULL_CSV_FILE
+    minimal_path = config.RESULTS_CSV_FILE
+
+    if not os.path.exists(full_path):
+        print(f"Error: File not found: {full_path}")
+        sys.exit(1)
+
+    print(f"Loading: {full_path}")
+    df = pd.read_csv(full_path)
     df = df.dropna(how='all').copy()
-    print(f"  Total rows loaded: {len(df)}")
-    
-    # --- Fix failed rows: use worst-case values ---
-    # Check is_valid column (TRUE/FALSE) or use v_pi_V NaN status
+    print(f"  Rows loaded: {len(df)}")
+
+    # --- Determine valid / failed rows ---
     if 'is_valid' in df.columns:
-        failed_mask = df['is_valid'] == False
+        failed_mask = df['is_valid'].astype(str).str.upper() == 'FALSE'
     else:
         failed_mask = df['v_pi_V'].isna()
-    
-    n_failed = failed_mask.sum()
+
+    n_failed = int(failed_mask.sum())
     n_valid = len(df) - n_failed
     print(f"  Valid: {n_valid}, Failed: {n_failed}")
-    
-    # For failed rows: use loss_max instead of loss_at_v_pi
-    df.loc[failed_mask, 'loss_at_v_pi_dB_per_cm'] = df.loc[failed_mask, 'loss_max_dB_per_cm']
-    
-    # For failed rows: v_pi_l = V_MAX * length * 1e3 (V*mm)
+
+    # --- For failed rows: enforce worst-case input values ---
+    if 'loss_max_dB_per_cm' in df.columns:
+        df.loc[failed_mask, 'loss_at_v_pi_dB_per_cm'] = df.loc[failed_mask, 'loss_max_dB_per_cm']
     df.loc[failed_mask, 'v_pi_l_Vmm'] = config.V_MAX * df.loc[failed_mask, 'length'] * 1e3
-    
-    # --- Recalculate cost for ALL rows using the corrected cost function ---
-    print("\nRecalculating costs with corrected cost function...")
-    
+
+    # --- Recalculate cost ---
+    # calculate_cost() returns -cost (negative, for maximization).
+    # The CSV stores the positive penalty value, so we negate the return.
+    print("Recalculating cost, norm_loss, norm_vpil ...")
     df['cost'] = df.apply(
         lambda row: -cost_module.calculate_cost(
             alpha=row['loss_at_v_pi_dB_per_cm'],
             v_pi_l=row['v_pi_l_Vmm'],
-            max_dphi=row['max_dphi_rad']
+            max_dphi=row['max_dphi_rad'],
         ),
-        axis=1
+        axis=1,
     )
-    
-    # Recalculate normalized columns (for reporting)
+
     df['norm_loss'] = df['loss_at_v_pi_dB_per_cm'] / config.TARGETS['loss']
     df['norm_vpil'] = df['v_pi_l_Vmm'] / config.TARGETS['vpil']
-    
+
     # --- Print summary ---
     valid_costs = df.loc[~failed_mask, 'cost']
     failed_costs = df.loc[failed_mask, 'cost']
-    
-    print(f"\n  Cost summary (corrected piecewise quadratic penalty):")
-    print(f"    Valid  — min: {valid_costs.min():.2f}, max: {valid_costs.max():.2f}, median: {valid_costs.median():.2f}")
-    print(f"    Failed — min: {failed_costs.min():.2f}, max: {failed_costs.max():.2f}, median: {failed_costs.median():.2f}")
-    if valid_costs.max() > 0:
+
+    print(f"\n  Cost summary (piecewise quadratic penalty):")
+    if n_valid:
+        print(f"    Valid  — min: {valid_costs.min():.4f}, max: {valid_costs.max():.4f}, "
+              f"median: {valid_costs.median():.4f}")
+    if n_failed:
+        print(f"    Failed — min: {failed_costs.min():.4f}, max: {failed_costs.max():.4f}, "
+              f"median: {failed_costs.median():.4f}")
+    if n_valid and n_failed and valid_costs.max() > 0:
         print(f"    Ratio (max_failed / max_valid): {failed_costs.max() / valid_costs.max():.1f}x")
-    
-    # --- Save to simulation csv directory ---
-    if output_dir is None:
-        output_dir = config.SIMULATION_CSV_DIR
-    
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Save full results
-    full_path = os.path.join(output_dir, "result_full.csv")
+
+    # Sample rows
+    if n_valid:
+        s = df[~failed_mask].iloc[0]
+        print(f"\n  Sample valid   sim_id={int(s['sim_id'])}: "
+              f"loss={s['loss_at_v_pi_dB_per_cm']:.2f} dB/cm, "
+              f"VpiL={s['v_pi_l_Vmm']:.4f} V*mm, "
+              f"max_dphi={s['max_dphi_rad']:.2f} rad, cost={s['cost']:.4f}")
+    if n_failed:
+        s = df[failed_mask].iloc[0]
+        print(f"  Sample failed  sim_id={int(s['sim_id'])}: "
+              f"loss={s['loss_at_v_pi_dB_per_cm']:.2f} dB/cm, "
+              f"VpiL={s['v_pi_l_Vmm']:.4f} V*mm, "
+              f"max_dphi={s['max_dphi_rad']:.2f} rad, cost={s['cost']:.4f}")
+
+    # --- Save results ---
     df.to_csv(full_path, index=False, float_format='%.6e')
-    print(f"\n  Saved {len(df)} rows to {full_path}")
-    
-    # Save minimal results (subset of columns for BO)
+    print(f"\n  Saved {len(df)} rows → {full_path}")
+
     minimal_cols = [c for c in config.MINIMAL_RESULT_COLUMNS if c in df.columns]
-    minimal_path = os.path.join(output_dir, "result.csv")
     df[minimal_cols].to_csv(minimal_path, index=False, float_format='%.6e')
-    print(f"  Saved {len(df)} rows (minimal columns) to {minimal_path}")
-    
-    # Show examples
-    print(f"\n  Sample valid row:")
-    if n_valid > 0:
-        sample_valid = df[~failed_mask].iloc[0]
-        print(f"    sim_id={int(sample_valid['sim_id'])}: loss={sample_valid['loss_at_v_pi_dB_per_cm']:.2f} dB/cm, "
-              f"VpiL={sample_valid['v_pi_l_Vmm']:.3f} V*mm, max_dphi={sample_valid['max_dphi_rad']:.2f} rad, "
-              f"cost={sample_valid['cost']:.2f}")
-    
-    print(f"\n  Sample failed row:")
-    if n_failed > 0:
-        sample_failed = df[failed_mask].iloc[0]
-        print(f"    sim_id={int(sample_failed['sim_id'])}: loss={sample_failed['loss_at_v_pi_dB_per_cm']:.2f} dB/cm, "
-              f"VpiL={sample_failed['v_pi_l_Vmm']:.3f} V*mm, max_dphi={sample_failed['max_dphi_rad']:.2f} rad, "
-              f"cost={sample_failed['cost']:.2f}")
-    
-    print(f"\n✓ Done! You can now use these results for BO.")
-    print(f"  Set SKIP_INITIAL_SIMS=True in config.py and run main.py")
-    
+    print(f"  Saved {len(df)} rows (minimal columns) → {minimal_path}")
+
+    print(f"\n✓ Done. Set SKIP_INITIAL_SIMS=True in config.py and run main.py")
+
     return df
 
 
 if __name__ == '__main__':
-    # Get the base directory (PS_Opt_V2)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Default path to Legacy_LHS_Results.csv
-    default_legacy_path = os.path.join(base_dir, "results_archive", "Legacy_LHS_Results.csv")
-    
-    # Allow command line override
-    legacy_path = sys.argv[1] if len(sys.argv) > 1 else default_legacy_path
-    
-    # Check if file exists
-    if not os.path.exists(legacy_path):
-        print(f"Error: File not found: {legacy_path}")
-        sys.exit(1)
-    
-    # Run the recalculation
-    recalculate_legacy_costs(legacy_path)
+    recalculate_costs()
