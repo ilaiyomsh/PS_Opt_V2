@@ -44,14 +44,14 @@ HIDE_GUI = True         # Hide Lumerical GUI
 DEBUG = False           # Step-by-step analysis mode
 SHOW_PLOTS = False      # Display plots after extraction
 RUN_SIMULATION = True   # Run actual Lumerical simulations (False = setup only, for testing)
-SKIP_LHS = False        # Skip LHS, use existing params.csv
-SKIP_INITIAL_SIMS = False   # Skip LHS + initial sims, use existing result.csv for BO
+SKIP_LHS = True        # Skip LHS, use existing params.csv
+SKIP_INITIAL_SIMS = True   # Skip LHS + initial sims, use existing result.csv for BO
 
 # --- Cooling Delay ---
 DELAY_BETWEEN_RUNS = 0  # seconds between runs (0 = no delay)
 
 # --- LHS Parameters ---
-LHS_N_SAMPLES = 60  # Number of LHS samples
+LHS_N_SAMPLES = 36  # Number of LHS samples
 
 LHS_SAMPLING_METHOD = 'optimum'  # 'random', 'maximin', or 'optimum' (smt library)
 LHS_RANDOM_SEED = None          # None = random seed
@@ -95,14 +95,21 @@ DOPING_X_MIN = -5e-6  # source_nwell x_min (m)
 DOPING_X_MAX = 5e-6   # drain_pwell x_max (m)
 
 # --- Bayesian Optimization ---
-MAX_ITERATIONS = 150   # BO iterations
+MAX_ITERATIONS = 100   # BO iterations
 BO_KAPPA = 4.0        # UCB kappa (low=exploit, high=explore)
 BO_KAPPA_DECAY = 0.98  # Multiply kappa by this each iteration (1.0 = no decay)
 # --- Cost Function (Eq. 27) ---
 FOM_WEIGHTS = {'loss': 0.5, 'vpil': 0.5}  # dB/cm, V*mm
-TARGETS = {'loss': 10.0, 'vpil': 0.5}      # Normalization targets
+TARGETS = {'loss': 20.0, 'vpil': 0.8}      # Normalization targets
 
 # Piecewise Penalty Constants for failed phase shifts
-C_BASE = 17.5  # Theoretical worst-case valid simulation cost baseline
-BETA = (9.0 * C_BASE) / (np.pi**2)  # Quadratic penalty coefficient
+# These are derived dynamically so C_BASE always exceeds the theoretical worst
+# valid-device cost, mathematically preventing cost inversion.
+WORST_CASE_VPIL = V_MAX * (SWEEP_PARAMETERS['length']['max'] * 1e3)  # V_MAX * L_max (V*mm)
+ALPHA_MAX = 3.0 * TARGETS['loss']                                    # Hard optical limit (dB/cm)
+MAX_VALID_COST = (FOM_WEIGHTS['loss'] * (ALPHA_MAX / TARGETS['loss'])**2
+                 + FOM_WEIGHTS['vpil'] * (WORST_CASE_VPIL / TARGETS['vpil'])**2)  # Theoretical worst Branch A cost
+C_BASE = MAX_VALID_COST + 2.0       # Failed-device baseline; always > MAX_VALID_COST
+BETA_ELEC = (9.0 * C_BASE) / (np.pi**2)  # Quadratic electrical penalty coefficient
+BETA_OPT  = C_BASE / 100.0               # Linear optical penalty coefficient (prevents gradient explosion)
 
