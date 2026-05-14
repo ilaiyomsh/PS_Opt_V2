@@ -1,89 +1,45 @@
 # system/cost.py
-# Cost function for PIN diode phase shifter optimization
-#   Dual-condition piecewise penalty:
-#     Branch A — valid (Δφ_max ≥ π AND α ≤ ALPHA_MAX):
-#         cost = w_loss*(α/T_loss)² + w_vpil*(V_π*L/T_vpil)²
-#     Branch B — failed (either condition unmet):
-#         alpha is capped at PHYSICAL_LOSS_CEILING (1000 dB/cm) before penalty
-#         cost = C_BASE + BETA_ELEC*(max(0, π−Δφ_max))² + BETA_OPT*max(0, min(α,1000)−ALPHA_MAX)
+# Piecewise penalty for the PIN-diode phase shifter:
+#   Branch A — valid (Δφ_max ≥ π AND α ≤ ALPHA_MAX):
+#       cost = w_loss·(α/T_loss)² + w_vpil·(V_π·L/T_vpil)²
+#   Branch B — failed: α is capped at PHYSICAL_LOSS_CEILING before the penalty.
+#       cost = C_BASE + BETA_ELEC·max(0, π−Δφ_max)² + BETA_OPT·max(0, min(α,1000)−ALPHA_MAX)
 
 import config
 import numpy as np
 
+PHYSICAL_LOSS_CEILING = 1000.0  # dB/cm — cap to neutralize Lumerical numerical anomalies
+
 
 def calculate_cost(alpha, v_pi_l, max_dphi=np.inf, weights=None, targets=None):
     """
-    Calculates cost using the dual-condition piecewise penalty.
-    Returns negative value for BayesOpt maximization.
+    Return the **negative** cost so BayesOpt's maximizer minimizes cost.
 
-    Parameters:
-    -----------
-    alpha : float
-        Optical loss (dB/cm). For valid sims: loss at V_pi.
-        For failed sims: max loss from sweep.
-    v_pi_l : float
-        Voltage-length product (V*mm). For valid sims: V_pi * L.
-        For failed sims: V_MAX * L.
-    max_dphi : float, optional
-        Maximum phase shift achieved (radians). Defaults to np.inf (assumes
-        electrically valid when not provided).
-    weights : dict, optional
-        {'loss': w_loss, 'vpil': w_vpil}. Defaults to config.FOM_WEIGHTS.
-    targets : dict, optional
-        {'loss': T_loss, 'vpil': T_vpil}. Defaults to config.TARGETS.
+    alpha       — loss in dB/cm at V_pi (valid) or worst-case from sweep (failed).
+    v_pi_l      — V_pi·L in V·mm; for failed sims set to V_MAX·L by the caller.
+    max_dphi    — max |Δφ|; defaults to inf (assumes electrically valid if omitted).
+    weights     — override config.FOM_WEIGHTS.
+    targets     — override config.TARGETS.
 
-    Returns:
-    --------
-    float
-        Negative cost (for BayesOpt maximization). Lower cost is better,
-        so more negative return value means better performance.
-
-    Cost Formula:
-    -------------
-    Conditions:
-        is_electrically_valid = max_dphi >= π
-        is_optically_valid    = alpha <= config.ALPHA_MAX
-
-    Branch A — Both conditions True (valid device):
-        cost = w_loss*(α/T_loss)² + w_vpil*(V_π*L/T_vpil)²
-
-    Branch B — One or both conditions False (failed device):
-        alpha is first capped at PHYSICAL_LOSS_CEILING (1000 dB/cm) so that
-        Lumerical numerical anomalies (e.g. 86,800 dB/cm) cannot skew the GP.
-        elec_penalty = BETA_ELEC * max(0, π - max_dphi)²  [quadratic]
-        opt_penalty  = BETA_OPT  * max(0, min(α, 1000) - ALPHA_MAX)  [linear, capped]
-        cost = C_BASE + elec_penalty + opt_penalty
-
-    C_BASE is dynamically derived in config.py so it always exceeds the
-    theoretical worst Branch A cost, preventing cost inversion.
+    Branch A applies when both electrical (Δφ_max ≥ π) and optical
+    (α ≤ ALPHA_MAX) validity hold. Otherwise Branch B (penalty) applies,
+    with C_BASE chosen in config.py to exceed the worst Branch A cost.
     """
     if weights is None:
         weights = config.FOM_WEIGHTS
     if targets is None:
         targets = config.TARGETS
 
-    is_electrically_valid = max_dphi >= np.pi
-    is_optically_valid = alpha <= config.ALPHA_MAX
-
-    # Branch A: Valid Device (both conditions met)
-    if is_electrically_valid and is_optically_valid:
-        # Failsafe: Destroy the cost score if Lumerical returns optical gain
+    if max_dphi >= np.pi and alpha <= config.ALPHA_MAX:
         if alpha < 0:
-            return -(config.C_BASE + 50.0)  # Massive penalty for unphysical gain results
-        # Normalize by targets and apply weights
+            # Lumerical occasionally reports unphysical gain — penalize hard.
+            return -(config.C_BASE + 50.0)
         norm_loss = alpha / targets['loss']
         norm_vpil = v_pi_l / targets['vpil']
-        # Quadratic (squared) terms per Equation 27
-        cost = (weights['loss'] * (norm_loss**2)) + (weights['vpil'] * (norm_vpil**2))
-
-    # Branch B: Failed Device (one or both conditions failed)
+        cost = weights['loss'] * (norm_loss ** 2) + weights['vpil'] * (norm_vpil ** 2)
     else:
-        # Cap alpha to prevent Lumerical numerical anomalies (e.g. 86,800 dB/cm) from
-        # skewing the GP — anything above this ceiling is equally "broken"
-        PHYSICAL_LOSS_CEILING = 1000.0
         capped_alpha = min(alpha, PHYSICAL_LOSS_CEILING)
-
-        elec_penalty = config.BETA_ELEC * (max(0, np.pi - max_dphi)**2)
+        elec_penalty = config.BETA_ELEC * (max(0, np.pi - max_dphi) ** 2)
         opt_penalty = config.BETA_OPT * max(0, capped_alpha - config.ALPHA_MAX)
         cost = config.C_BASE + elec_penalty + opt_penalty
 
