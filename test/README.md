@@ -12,8 +12,7 @@ test/
 ├── unit/                    # Unit tests (no external dependencies)
 │   ├── test_data_processor.py   # Optical calculations (calc_alpha, calc_dneff, etc.)
 │   ├── test_bo.py               # Bayesian optimization (cost function, duplicates)
-│   ├── test_lhs.py              # Latin Hypercube Sampling
-│   └── test_results_archive.py  # Results archive management
+│   └── test_lhs.py              # Latin Hypercube Sampling
 │
 ├── integration/             # Integration tests (filesystem, mocked Lumerical)
 │   └── test_csv_operations.py   # CSV read/write operations
@@ -144,12 +143,6 @@ Tests Latin Hypercube Sampling:
 - Sample generation with correct bounds
 - Reproducibility with fixed seed
 - Space-filling properties
-
-#### `test_results_archive.py` (17 tests)
-Tests results archive management:
-- `get_next_sim_id()` - ID sequencing
-- `load_all_results_for_bo()` - Loading and merging results
-- `archive_current_results()` - Archiving functionality
 
 ### Integration Tests
 

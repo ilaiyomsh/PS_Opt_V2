@@ -1,298 +1,199 @@
-# PS_Opt_V2 - PIN Diode Phase Shifter Optimization
+# PS_Opt_V2 — PIN Diode Phase Shifter Optimization
 
-A scientific computing system for optimizing silicon-based PIN diode phase shifters using Lumerical simulations and Bayesian optimization.
-
-## Overview
-
-PIN diode phase shifters are key components in silicon photonics for applications like optical switching and beam steering. This system automates the design optimization process by:
-
-1. **Exploring the parameter space** using Latin Hypercube Sampling (LHS)
-2. **Running coupled electro-optical simulations** (CHARGE + FDE) in Lumerical
-3. **Optimizing designs** using Bayesian Optimization to find Pareto-optimal solutions
-
-### Optimization Objectives
-
-The system minimizes two competing objectives:
-
-| Metric | Unit | Target | Description |
-|--------|------|--------|-------------|
-| **V_pi * L** | V*mm | 1.0 | Drive voltage-length product |
-| **Optical Loss** | dB/cm | 2.0 | Insertion loss |
+Optimizes silicon PIN-diode phase shifters by orchestrating Lumerical CHARGE + FDE simulations and feeding results into a Bayesian optimizer. Two competing objectives are minimized: drive voltage-length product `V_pi*L` (V·mm) and optical loss (dB/cm).
 
 ---
 
-## System Architecture
+## Workflow
+
+1. **LHS** — Latin Hypercube samples written to `simulation csv/params.csv`.
+2. **Initial sims** — Each row run through CHARGE → FDE, results appended to `result.csv`.
+3. **BO loop** — GP trained once on all prior rows, then iterates `suggest → simulate → register`.
+   - Parameters normalized to `[0,1]` (isotropic Matern kernel)
+   - Costs registered as `-log(cost)` (compresses ~8000× spread to ~12×)
+4. **Final results** — Persisted under `simulation csv/`.
 
 ```
-+------------------------------------------------------------------+
-|                       main.py (Entry Point)                       |
-|  1. LHS sampling  2. Initial sims  3. BO loop  4. Final results  |
-+----------------------------------+-------------------------------+
-                                   |
-          +------------------------+------------------------+
-          v                                                 v
-  +---------------+                                 +---------------+
-  |    LHS.py     |                                 |     BO.py     |
-  | Latin Hypercube|                                |   Bayesian    |
-  |   Sampling    |                                 | Optimization  |
-  +-------+-------+                                 +-------+-------+
-          |                                          params [0,1]
-          +------------------------+--------------- log(cost)
-                                   v
-                     +---------------------------+
-                     |    run_simulation.py      |
-                     |     (Orchestration)       |
-                     +------+----------+---------+
-                            |          |
-                            v          v
-                     +----------+ +--------------+
-                     |sim_handler| |data_processor|
-                     |Lumerical  | | Pure math &  |
-                     |   API     | | calculations |
-                     +-----+-----+ +------+------+
-                           |              |
-          +----------------+              +---> cost.py
-          |                                  (piecewise quadratic penalty)
-          v
-  +---------------+                                 +---------------+
-  |  CHARGE.ldev  |                                 |   MODE.lms    |
-  |  (Electrical) |  ---- charge_data.mat ------>  |   (Optical)   |
-  |  V -> carriers|                                 | carriers->neff|
-  +---------------+                                 +---------------+
+main.py ──► LHS.py ──► run_simulation.py ──► sim_handler.py (lumapi)
+                              │                       │
+                              │                       ▼
+                              │              data_processor.py
+                              │                       │
+                              ▼                       ▼
+                            BO.py  ◄────────────  cost.py
 ```
 
-### Workflow
-
-1. **LHS Phase**: Generate initial parameter samples spanning the design space
-2. **CHARGE Simulation**: Calculate carrier distributions under applied voltage
-3. **FDE Simulation**: Compute effective index change and optical loss from carrier data
-4. **BO Phase**: Train GP once on all results, then loop: suggest → simulate → register
-   - Parameters normalized to [0,1] before GP (isotropic Matern kernel)
-   - Costs log-transformed before GP (compresses 8000x range to ~12x)
-
----
-
-## Input Parameters
-
-| Parameter | Symbol | Range | Unit | Description |
-|-----------|--------|-------|------|-------------|
-| Rib Width | `w_r` | 350 - 500 | nm | Waveguide rib width |
-| Silicon Height | `h_si` | 70 - 130 | nm | Silicon layer height |
-| Doping | `doping` | 1e17 - 1e18 | cm^-3 | Doping concentration |
-| Spacing | `S` | 0 - 800 | nm | Junction offset |
-| Wavelength | `lambda` | 1260 - 1360 | nm | Operating wavelength |
-| Length | `length` | 0.1 - 1.0 | mm | Device length |
-
-## Output Metrics
-
-| Metric | Column Name | Unit | Description |
-|--------|-------------|------|-------------|
-| V_pi | `v_pi_V` | V | Half-wave voltage |
-| V_pi * L | `v_pi_l_Vmm` | V*mm | Voltage-length product |
-| Loss | `loss_at_v_pi_dB_per_cm` | dB/cm | Optical insertion loss at V_pi |
-| Capacitance | `C_at_v_pi_pF_per_cm` | pF/cm | Capacitance at V_pi |
-| Max Phase | `max_dphi_rad` | rad | Maximum phase shift (π = success) |
-| Cost | `cost` | - | Weighted objective (lower is better) |
+`sim_handler.py` is the only module that touches `lumapi`. CHARGE writes `Lumerical_Files/charge_data.mat`, then FDE consumes it.
 
 ---
 
 ## Requirements
 
-### Software
 - Python 3.8+
-- Lumerical DEVICE (CHARGE solver)
-- Lumerical MODE (FDE solver)
-- Git LFS (for cloning Lumerical template files)
+- Lumerical DEVICE (CHARGE) and MODE (FDE)
+- Lumerical template files (see below)
 
-### Python Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Lumerical Template Files
+### Lumerical template files
 
-The repository includes large Lumerical simulation template files stored via Git LFS. There are **two ways** to obtain these files:
+Two large files are required in `Lumerical_Files/`:
 
-#### Option 1: Download from GitHub Release (Recommended)
+| File | Size |
+|------|------|
+| `PIN_Ref_paper_Charge.ldev` | 347 MB |
+| `PIN_Ref_phase_shifter.lms` | 15 MB |
 
-The easiest method - no Git LFS installation required:
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
-   ```
-
-2. Go to the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases)
-
-3. Download the Lumerical files from the latest release:
-   - `PIN_Ref_paper_Charge.ldev` (347 MB)
-   - `PIN_Ref_phase_shifter.lms` (15 MB)
-
-4. Place the downloaded files in the `Lumerical_Files/` directory
-
-#### Option 2: Clone with Git LFS
-
-If you have Git LFS installed, files download automatically:
-
-```bash
-# Install Git LFS (one-time)
-# macOS: brew install git-lfs
-# Ubuntu: sudo apt install git-lfs
-# Windows: https://git-lfs.github.com/
-
-# Initialize Git LFS
-git lfs install
-
-# Clone (LFS files download automatically)
-git clone https://github.com/ilaiyomsh/PS_Opt_V2.git
-```
-
-#### Verifying Lumerical Files
-
-After obtaining the files, verify they are correctly placed:
-
-```bash
-ls -lh Lumerical_Files/
-# Should show:
-# PIN_Ref_paper_Charge.ldev  (~347 MB)
-# PIN_Ref_phase_shifter.lms  (~15 MB)
-```
-
-If files show as small text pointers (~130 bytes), either:
-- Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases), or
-- Run `git lfs pull` (requires Git LFS)
+Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/releases) and place into `Lumerical_Files/`, or pull via Git LFS (`git lfs install && git lfs pull`).
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1. Configure Lumerical Path
+1. Edit `system/config.py` and set `LUMERICAL_API_PATH` to your Lumerical Python API path:
+   - Windows: `C:\Program Files\Lumerical\v231\api\python`
+   - Linux: `/opt/lumerical/v231/api/python`
+   - macOS: `/Applications/Lumerical/v231/api/python`
 
-Edit `system/config.py` and set the path to your Lumerical installation:
+2. Run:
+   ```bash
+   source venv/bin/activate
+   cd system
+   python main.py
+   ```
 
-```python
-# Windows
-LUMERICAL_API_PATH = "C:\\Program Files\\Lumerical\\v231\\api\\python"
-
-# Linux
-LUMERICAL_API_PATH = "/opt/lumerical/v231/api/python"
-
-# macOS
-LUMERICAL_API_PATH = "/Applications/Lumerical/v231/api/python"
-```
-
-### 2. Prepare Simulation Files
-
-Ensure these files exist in `Lumerical_Files/`:
-- `PIN_Ref_phase_shifter.lms` - FDE simulation template
-- `PIN_Ref_paper_Charge.ldev` - CHARGE simulation template
-
-### 3. Run Optimization
-
-**Full run** (LHS + simulations + BO):
+**BO-only run from archived data:**
 ```bash
-cd system
+python prepare_initial_data.py   # loads first 60 rows from results_archive/
+# set SKIP_INITIAL_SIMS=True in config.py
 python main.py
 ```
 
-**BO-only run** (using archived results as initial data):
-```bash
-cd system
-python prepare_initial_data.py          # loads first 60 rows from archive
-python main.py                          # set SKIP_INITIAL_SIMS=True in config.py
-```
+---
+
+## Input parameters
+
+| Parameter | Symbol | Range | Unit |
+|-----------|--------|-------|------|
+| Rib width | `w_r` | 350 – 500 | nm |
+| Silicon height | `h_si` | 70 – 130 | nm (10 nm grid, discrete) |
+| Doping | `doping` | 1e17 – 1e18 | cm⁻³ |
+| Spacing | `S` | 0 – 800 | nm |
+| Wavelength | `lambda` | 1260 – 1360 | nm |
+| Length | `length` | 0.1 – 1.0 | mm |
+
+Bounds live in `SWEEP_PARAMETERS` in `system/config.py`. Discrete parameters are listed in `DISCRETE_PARAMETERS` and snapped to a fixed grid both in LHS and in BO suggestions.
 
 ---
 
-## Project Structure
-
-```
-PS_Opt_V2/
-├── system/                    # Python source code
-│   ├── main.py               # Entry point (with file logging)
-│   ├── main_clean.py         # Same logic, print-only (for reading)
-│   ├── config.py             # Configuration settings
-│   ├── LHS.py                # Latin Hypercube Sampling
-│   ├── BO.py                 # Bayesian Optimization (params [0,1], log-cost)
-│   ├── cost.py               # Cost function (piecewise quadratic penalty)
-│   ├── run_simulation.py     # Simulation orchestration
-│   ├── sim_handler.py        # Lumerical API interface
-│   ├── data_processor.py     # Data extraction & processing
-│   ├── prepare_initial_data.py  # Load archived results for BO
-│   └── results_archive.py    # Results archiving utilities
-│
-├── Lumerical_Files/          # Simulation templates (tracked via Git LFS)
-├── simulation csv/           # Input/output CSV files
-│   ├── params.csv            # Generated parameters
-│   ├── result.csv            # Minimal results (12 columns)
-│   ├── result_full.csv       # Full results (all columns)
-│   └── errors.csv            # Error log
-│
-├── results_archive/          # Historical results for BO training
-├── requirements.txt          # Python dependencies
-├── CONFIGURATION.md          # Detailed configuration guide
-└── README.md                 # This file
-```
-
----
-
-## Output Files
+## Output files (`simulation csv/`)
 
 | File | Description |
 |------|-------------|
-| `result.csv` | **Minimal** - Essential columns (13 cols): sim_id, inputs, key outputs, max_dphi, cost |
-| `result_full.csv` | **Full** - All columns including timing, ranges, debug data |
-| `errors.csv` | Error log with traceback for failed simulations |
+| `params.csv` | LHS-generated inputs (row 2 is units; skip when reading) |
+| `result.csv` | Minimal columns per `MINIMAL_RESULT_COLUMNS`, appended after each sim |
+| `result_full.csv` | Full results (timing, ranges, geometry) |
+| `errors.csv` | Failure log with stage, error type, traceback, params |
+| `raw/` | Per-`sim_id` sweep dumps |
+
+Resume support: `main.py` skips any `sim_id` already in `result.csv`.
 
 ---
 
-## Configuration
+## Cost function
 
-See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options including:
-- Parameter bounds customization
-- LHS and BO settings
-- Cooling delay for thermal management
-- Recommended settings for different scenarios
+**Valid simulations (`Δφ_max ≥ π`):**
+```
+cost = w_loss · (α / T_loss)² + w_vpil · (V_pi·L / T_vpil)²
+```
+Defaults: `w_loss = 0.3`, `w_vpil = 0.7`, `T_loss = 2.0 dB/cm`, `T_vpil = 1.0 V·mm`.
+
+**Failed simulations (`Δφ_max < π`):**
+```
+cost = C_BASE + β · (π - Δφ_max)²
+```
+with `C_BASE = 35.0` and `β = 9·C_BASE/π² ≈ 31.83`.
+
+`calculate_cost` returns the **negative** cost (BayesOpt maximizes); `run_simulation._build_result` re-negates before storing.
 
 ---
 
-## Results Interpretation
+## Key data-processing formulas
 
-After optimization completes, results are saved to `simulation csv/result.csv`:
+- **Capacitance**: `C = d(q·n)/dV + d(q·p)/dV`, converted F/m → pF/cm by ×1e10.
+- **Optical loss**: `α [dB/cm] = 2·k₀·Im(n_eff) · (10/ln 10) · 10⁻²`.
+- **Phase shift**: `Δφ = 2π·Δn_eff·L / λ`.
+- **V_π**: linear interpolation of `|Δφ|(V)` at `π`; `V_π·L` reported in V·mm.
 
-- **Low V_pi*L + Low Loss**: Ideal designs (Pareto front)
-- **Low V_pi*L + High Loss**: Fast switching, high loss
-- **High V_pi*L + Low Loss**: Low loss, requires higher voltage
+All values at `V_π` are interpolated from the simulated sweeps. See `system/data_processor.py` for the implementations.
 
-The Bayesian optimizer uses a piecewise quadratic penalty cost function to balance these trade-offs:
+---
 
-**Valid simulations (Δφ_max ≥ π):**
+## Configuration knobs (`system/config.py`)
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `LUMERICAL_API_PATH` | — | **Required**; platform-specific |
+| `RUN_SIMULATION` | `True` | `False` runs orchestration without invoking Lumerical |
+| `SKIP_LHS` | `False` | Reuse existing `params.csv` |
+| `SKIP_INITIAL_SIMS` | `False` | Jump straight to BO with existing `result.csv` |
+| `HIDE_GUI` | `True` | Hide Lumerical GUI |
+| `DEBUG`, `SHOW_PLOTS` | `False` | Interactive/visualization |
+| `LHS_N_SAMPLES` | `60` | Number of initial samples |
+| `LHS_SAMPLING_METHOD` | `'random'` | `'random' \| 'maximin' \| 'optimum'` (smt) |
+| `MAX_ITERATIONS` | `100` | BO iterations |
+| `BO_KAPPA` | `2.0` | UCB exploration weight |
+| `BO_KAPPA_DECAY` | `1.0` | Multiplier per iteration (`1.0` disables) |
+| `DELAY_BETWEEN_RUNS` | `0` | Cooling delay (seconds) between sims |
+| `FOM_WEIGHTS`, `TARGETS` | see above | Cost-function tuning |
+
+---
+
+## Project structure
+
 ```
-cost = 0.3 * (loss/2.0)² + 0.7 * (vpil/1.0)²
+PS_Opt_V2/
+├── system/                    # Python source
+│   ├── main.py                # Entry point
+│   ├── config.py
+│   ├── LHS.py
+│   ├── BO.py                  # GP + UCB; params [0,1], -log(cost) target
+│   ├── cost.py                # Piecewise quadratic
+│   ├── run_simulation.py      # Per-row orchestration, CSV I/O
+│   ├── sim_handler.py         # Lumerical API
+│   ├── data_processor.py      # Optical/electrical post-processing
+│   └── prepare_initial_data.py
+│
+├── Lumerical_Files/           # Templates (Git LFS / Releases)
+├── simulation csv/            # Inputs/outputs
+├── results_archive/           # Historical results for BO seeding
+├── test/                      # Pytest suite
+├── requirements.txt
+└── README.md
 ```
 
-**Failed simulations (Δφ_max < π):**
-```
-cost = C_BASE + β * (π - Δφ_max)²
-```
-where `C_BASE = 35.0` and `β = 9*C_BASE/π² ≈ 31.83`
+---
 
-This piecewise approach provides smooth gradients for GP optimization while strongly penalizing parameter regions that fail to achieve π phase shift. See [METHODOLOGY.md](METHODOLOGY.md) for mathematical details.
+## Tests
+
+```bash
+pytest -m "not lumerical"          # default — skips Lumerical-dependent tests
+pytest -m unit                     # unit tests only
+pytest -m "not lumerical" --cov=system --cov-report=term-missing
+```
+
+Lumerical-marked tests require a working install and a valid `LUMERICAL_API_PATH`.
 
 ---
 
 ## Troubleshooting
 
-| Error | Solution |
-|-------|----------|
-| `lumapi not found` | Check `LUMERICAL_API_PATH` in `config.py` |
-| `Lumerical file not found` | Ensure `.lms` and `.ldev` files exist in `Lumerical_Files/` |
-| `Module not found` | Run `pip install -r requirements.txt` |
-| Simulation crashes | Try increasing `DELAY_BETWEEN_RUNS` in `config.py` |
+| Error | Fix |
+|-------|-----|
+| `lumapi not found` | Check `LUMERICAL_API_PATH` |
+| `Lumerical file not found` | Verify `.lms`/`.ldev` in `Lumerical_Files/` |
+| `Module not found` | `pip install -r requirements.txt` |
+| Simulation crashes mid-run | Increase `DELAY_BETWEEN_RUNS` |
 | CSV column mismatch | Delete old `result.csv` and start fresh |
-
----
-
-## License
-
-Research and development project for PIN diode phase shifter optimization.
