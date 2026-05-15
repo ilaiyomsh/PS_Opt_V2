@@ -103,17 +103,17 @@ class TestCalculateLossFunction:
         """Test cost calculation with custom targets."""
         from cost import calculate_cost as calculate_loss_function
 
-        # Default targets: loss=2.0, vpil=1.0
-        cost_default = calculate_loss_function(alpha=2.0, v_pi_l=1.0)
+        # Default targets: loss=20.0, vpil=0.8 — alpha=20.0, v_pi_l=0.8 gives norm (1.0, 1.0)
+        cost_default = calculate_loss_function(alpha=20.0, v_pi_l=0.8)
 
-        # Custom targets where current values are "at target"
+        # Custom targets where the same normalized values (1.0, 1.0) are produced
         custom_targets = {'loss': 4.0, 'vpil': 2.0}
         cost_custom = calculate_loss_function(
             alpha=4.0, v_pi_l=2.0, targets=custom_targets
         )
 
-        # Both should have same normalized values
-        assert np.isclose(cost_default, cost_custom, rtol=0.1)
+        # Both should have the same normalized values and therefore the same cost
+        assert np.isclose(cost_default, cost_custom, rtol=1e-6)
 
     @pytest.mark.unit
     def test_zero_alpha(self):
@@ -127,7 +127,7 @@ class TestCalculateLossFunction:
 
     @pytest.mark.unit
     def test_linear_scaling(self):
-        """Test that doubling alpha doubles the loss contribution."""
+        """Test that doubling alpha quadruples the loss contribution (quadratic formula)."""
         from cost import calculate_cost as calculate_loss_function
 
         # Use loss-only weights to isolate the loss contribution
@@ -136,9 +136,9 @@ class TestCalculateLossFunction:
         cost_1x = calculate_loss_function(alpha=2.0, v_pi_l=1.0, weights=weights)
         cost_2x = calculate_loss_function(alpha=4.0, v_pi_l=1.0, weights=weights)
 
-        # Doubling alpha should double the (positive) cost
-        assert np.isclose(cost_2x / cost_1x, 2.0, rtol=1e-6), \
-            "Doubling alpha should double the loss contribution"
+        # Doubling alpha should quadruple the (positive) cost (squared formula)
+        assert np.isclose(cost_2x / cost_1x, 4.0, rtol=1e-6), \
+            "Doubling alpha should quadruple the loss contribution (quadratic scaling)"
 
     @pytest.mark.unit
     def test_failed_sim_cost_is_finite(self):

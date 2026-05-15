@@ -1,65 +1,46 @@
 # system/cost.py
-# Cost function for PIN diode phase shifter optimization
-#   Piecewise quadratic penalty:
-#     Valid case (Δφ_max ≥ π): cost = w_loss*(α/T_loss)² + w_vpil*(V_π*L/T_vpil)²
-#     Failed case (Δφ_max < π): cost = C_BASE + β*(π - Δφ_max)²
+# Piecewise penalty for the PIN-diode phase shifter:
+#   Branch A — valid (Δφ_max ≥ π AND α ≤ ALPHA_MAX):
+#       cost = w_loss·(α/T_loss)² + w_vpil·(V_π·L/T_vpil)²
+#   Branch B — failed: α is capped at PHYSICAL_LOSS_CEILING before the penalty.
+#       cost = C_BASE + BETA_ELEC·max(0, π−Δφ_max)² + BETA_OPT·max(0, min(α,1000)−ALPHA_MAX)
 
 import config
 import numpy as np
 
+PHYSICAL_LOSS_CEILING = 1000.0  # dB/cm — cap to neutralize Lumerical numerical anomalies
 
-def calculate_cost(alpha, v_pi_l, max_dphi, weights=None, targets=None):
+
+def calculate_cost(alpha, v_pi_l, max_dphi=np.inf, weights=None, targets=None):
     """
-    Calculates cost using the piecewise quadratic penalty.
-    Returns negative value for BayesOpt maximization.
+    Return the **negative** cost so BayesOpt's maximizer minimizes cost.
 
-    Parameters:
-    -----------
-    alpha : float
-        Optical loss (dB/cm). For valid sims: loss at V_pi.
-        For failed sims: max loss from sweep.
-    v_pi_l : float
-        Voltage-length product (V*mm). For valid sims: V_pi * L.
-        For failed sims: V_MAX * L.
-    max_dphi : float
-        Maximum phase shift achieved (radians).
-        Used to determine valid (≥π) vs failed (<π) case.
-    weights : dict, optional
-        {'loss': w_loss, 'vpil': w_vpil}. Defaults to config.FOM_WEIGHTS.
-    targets : dict, optional
-        {'loss': T_loss, 'vpil': T_vpil}. Defaults to config.TARGETS.
+    alpha       — loss in dB/cm at V_pi (valid) or worst-case from sweep (failed).
+    v_pi_l      — V_pi·L in V·mm; for failed sims set to V_MAX·L by the caller.
+    max_dphi    — max |Δφ|; defaults to inf (assumes electrically valid if omitted).
+    weights     — override config.FOM_WEIGHTS.
+    targets     — override config.TARGETS.
 
-    Returns:
-    --------
-    float
-        Negative cost (for BayesOpt maximization). Lower cost is better,
-        so more negative return value means better performance.
-
-    Cost Formula:
-    -------------
-    If max_dphi >= π (valid simulation):
-        cost = w_loss*(α/T_loss)² + w_vpil*(V_π*L/T_vpil)²
-
-    If max_dphi < π (failed simulation):
-        cost = C_BASE + β*(π - max_dphi)²
-
-    where C_BASE = 35.0 and β = 9*C_BASE/π² ≈ 31.83
+    Branch A applies when both electrical (Δφ_max ≥ π) and optical
+    (α ≤ ALPHA_MAX) validity hold. Otherwise Branch B (penalty) applies,
+    with C_BASE chosen in config.py to exceed the worst Branch A cost.
     """
     if weights is None:
         weights = config.FOM_WEIGHTS
     if targets is None:
         targets = config.TARGETS
 
-    # Branch 1: Valid Simulation (Reached Pi)
-    if max_dphi >= np.pi:
+    if max_dphi >= np.pi and alpha <= config.ALPHA_MAX:
+        if alpha < 0:
+            # Lumerical occasionally reports unphysical gain — penalize hard.
+            return -(config.C_BASE + 50.0)
         norm_loss = alpha / targets['loss']
         norm_vpil = v_pi_l / targets['vpil']
-        # Quadratic (squared) terms per Equation 27
-        cost = (weights['loss'] * (norm_loss**2)) + (weights['vpil'] * (norm_vpil**2))
-
-    # Branch 2: Failed Simulation (Did not reach Pi)
+        cost = weights['loss'] * (norm_loss ** 2) + weights['vpil'] * (norm_vpil ** 2)
     else:
-        # Quadratic penalty based on distance from Pi
-        cost = config.C_BASE + config.BETA * ((np.pi - max_dphi)**2)
+        capped_alpha = min(alpha, PHYSICAL_LOSS_CEILING)
+        elec_penalty = config.BETA_ELEC * (max(0, np.pi - max_dphi) ** 2)
+        opt_penalty = config.BETA_OPT * max(0, capped_alpha - config.ALPHA_MAX)
+        cost = config.C_BASE + elec_penalty + opt_penalty
 
     return -cost
