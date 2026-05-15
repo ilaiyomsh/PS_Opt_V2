@@ -64,13 +64,6 @@ Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/release
    python main.py
    ```
 
-**BO-only run from archived data:**
-```bash
-python prepare_initial_data.py   # loads first 60 rows from results_archive/
-# set SKIP_INITIAL_SIMS=True in config.py
-python main.py
-```
-
 ---
 
 ## Input parameters
@@ -163,12 +156,10 @@ PS_Opt_V2/
 │   ├── cost.py                # Piecewise quadratic
 │   ├── run_simulation.py      # Per-row orchestration, CSV I/O
 │   ├── sim_handler.py         # Lumerical API
-│   ├── data_processor.py      # Optical/electrical post-processing
-│   └── prepare_initial_data.py
+│   └── data_processor.py      # Optical/electrical post-processing
 │
 ├── Lumerical_Files/           # Templates (Git LFS / Releases)
 ├── simulation csv/            # Inputs/outputs
-├── results_archive/           # Historical results for BO seeding
 ├── test/                      # Pytest suite
 ├── requirements.txt
 └── README.md

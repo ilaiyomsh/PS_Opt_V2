@@ -67,7 +67,7 @@ def main():
 
 def _skip_initial(results_path):
     if not os.path.exists(results_path):
-        log(f"[ERROR] {results_path} not found. Run prepare_initial_data.py or set SKIP_INITIAL_SIMS=False.")
+        log(f"[ERROR] {results_path} not found. Set SKIP_INITIAL_SIMS=False to generate it.")
         return
     df = pd.read_csv(results_path)
     log(f"Using existing results: {len(df)} rows ({df['v_pi_V'].notna().sum()} valid)")

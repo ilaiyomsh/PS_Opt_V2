@@ -141,6 +141,3 @@ logs/
 
 # PDF exports
 *.pdf
-
-
-prepare_initial_data.py
