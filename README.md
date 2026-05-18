@@ -54,8 +54,7 @@ Download from the [Releases page](https://github.com/ilaiyomsh/PS_Opt_V2/release
 
 1. Edit `system/config.py` and set `LUMERICAL_API_PATH` to your Lumerical Python API path:
    - Windows: `C:\Program Files\Lumerical\v231\api\python`
-   - Linux: `/opt/lumerical/v231/api/python`
-   - macOS: `/Applications/Lumerical/v231/api/python`
+
 
 2. Run:
    ```bash
